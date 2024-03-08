@@ -1,0 +1,12 @@
+
+# Environment variables
+.env
+
+# Log files
+*.log
+
+# Database files
+database.sqlite
+
+# Created Javascript files
+.cache
