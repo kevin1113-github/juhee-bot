@@ -1,5 +1,5 @@
-node_modules
-bin
-include
-lib
-share
+node_modules linguist-vendored
+bin linguist-vendored
+include linguist-vendored
+lib linguist-vendored
+share linguist-vendored
