@@ -1,5 +1,10 @@
-node_modules/** linguist-vendored
-bin/** linguist-vendored
-include/** linguist-vendored
-lib/** linguist-vendored
-share/** linguist-vendored
+# node_modules/** linguist-vendored
+# bin/** linguist-vendored
+# include/** linguist-vendored
+# lib/** linguist-vendored
+# share/** linguist-vendored
+
+* linguist-vendored
+app/* linguist-vendored=false
+pakage.json linguist-vendored=false
+tsconfig.json linguist-vendored=false
