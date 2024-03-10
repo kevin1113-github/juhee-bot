@@ -11,4 +11,19 @@ database.sqlite
 # Created Javascript files
 .cache
 
+# Apple file management
 .DS_store
+
+# Node modules
+node_modules
+
+# shared files
+share
+
+src
+
+lib
+
+include
+
+bin
