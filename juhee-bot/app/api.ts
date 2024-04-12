@@ -21,7 +21,11 @@ export default class HttpServer {
       if(ttsChannel) {
         this.client.channels.fetch(ttsChannel).then(channel => {
           if(channel?.isTextBased()){
-            channel.send(data);
+            try {
+              channel.send(data);
+            } catch (error) {
+              console.log(error);
+            }
           }
         });
       }
