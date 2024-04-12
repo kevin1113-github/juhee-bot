@@ -3,11 +3,13 @@ import { ChannelType, SlashCommandBuilder } from 'discord.js';
 const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">[] = [
   new SlashCommandBuilder()
     .setName('들어와')
-    .setDescription('음성채널에 참가합니다.'),
+    .setDescription('음성채널에 참가합니다.')
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('나가')
-    .setDescription('음성채널에서 나갑니다.'),
+    .setDescription('음성채널에서 나갑니다.')
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('채널설정')
@@ -16,11 +18,13 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
       option.setName('채널')
         .setDescription('tts를 재생할 채널')
         .addChannelTypes(ChannelType.GuildText)
-        .setRequired(true)),
+        .setRequired(true))
+    .setDMPermission(false),
   
   new SlashCommandBuilder()
     .setName('채널해제')
-    .setDescription('tts 채널을 해제합니다.'),
+    .setDescription('tts 채널을 해제합니다.')
+    .setDMPermission(false),
   
   new SlashCommandBuilder()
     .setName('목소리설정')
@@ -39,7 +43,8 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
           { name: '순복(여)', value: 'SoonBokNeural' },
           { name: '유진(여)', value: 'YuJinNeural' },
         )
-        .setRequired(true)),
+        .setRequired(true))
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('속도설정')
@@ -49,20 +54,28 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setDescription('tts 속도')
         .setMinValue(0)
         .setMaxValue(100)
-        .setRequired(true)),
+        .setRequired(true))
+    .setDMPermission(false),
       
   new SlashCommandBuilder()
     .setName('음소거')
-    .setDescription('주희가 채팅을 치지 않도록 음소거합니다.'),
+    .setDescription('주희가 채팅을 치지 않도록 음소거합니다.')
+    .setDMPermission(false),
   
   new SlashCommandBuilder()
     .setName('음소거해제')
-    .setDescription('주희의 음소거를 해제합니다.'),
+    .setDescription('주희의 음소거를 해제합니다.')
+    .setDMPermission(false),
 
   // new SlashCommandBuilder()
   //   .setName('주희야')
   //   .setDescription('음성을 인식하여 노래를 플레이합니다.'),
       
+
+  // new SlashCommandBuilder()
+  //   .setName('도움말')
+  //   .setDescription('도움말을 표시합니다.'),
+
 ];
 
 export default Commands;
