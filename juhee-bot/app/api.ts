@@ -17,7 +17,8 @@ export default class HttpServer {
     const servers: DATA[] = await Servers.findAll();
     for (const server of servers) {
       const ttsChannel = server.dataValues.ttsChannel;
-      if(ttsChannel && server.dataValues.id == '1215573434159996948') {
+      // if(ttsChannel && server.dataValues.id == '1215573434159996948') {
+      if(ttsChannel) {
         this.client.channels.fetch(ttsChannel).then(channel => {
           if(channel?.isTextBased()){
             channel.send(data);
