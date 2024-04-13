@@ -92,7 +92,7 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 ## To do:
 
 - Github Action을 사용하여 AWS EC2로 배포 자동화
-- 공지사항 기능 추가
+- ~~공지사항 기능 추가~~
 - 접속한 서버, 등록된 멤버 조회하고 관리할 대시보드 기능 추가 (web server)
 - 사용한 open source 라이선스 명시하기, 이 프로젝트에도 라이선스 추가하기
 
