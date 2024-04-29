@@ -117,4 +117,4 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 
 ## 버그 제보 및 기타 개발 문의
 - GitHub: [kevin1113-github](https://github.com/kevin1113-github/)
-- email: kevin1113dev@gmail.com
+- Email: kevin1113dev@gmail.com
