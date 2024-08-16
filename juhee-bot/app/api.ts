@@ -41,6 +41,7 @@ export default class HttpServer {
       req.on("end", async () => {
         const password = postData.split(",")[0];
         postData = postData.split(",")[1];
+        postData = postData.replace(/\\n/g, "\n");
         if (password.startsWith("password=") && password.split("=")[1] === REQUEST_PASSWORD) {
           await this.notice(postData);
         }
