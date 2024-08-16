@@ -1,8 +1,7 @@
-import { Client } from "discord.js";
+import { Client, EmbedBuilder } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
 const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? '';
-
 
 import http from "http";
 import { Servers } from "./dbObject.js";
@@ -12,7 +11,7 @@ export default class HttpServer {
   private server: http.Server;
   private client: Client;
 
-  private async notice(data: string) {
+  private async notice(data: EmbedBuilder) {
     await Servers.sync();
     const servers: DATA[] = await Servers.findAll();
     for (const server of servers) {
@@ -22,7 +21,7 @@ export default class HttpServer {
         this.client.channels.fetch(ttsChannel).then(channel => {
           if(channel?.isTextBased()){
             try {
-              channel.send(data);
+              channel.send({ embeds: [data] });
             } catch (error) {
               console.log(error);
             }
@@ -41,9 +40,17 @@ export default class HttpServer {
       req.on("end", async () => {
         const password = postData.split(",")[0];
         postData = postData.split(",")[1];
-        postData = postData.replace(/\\n/g, "\n");
+        postData = postData.replace(/\\n/g, '\n');
+        const title: string = postData.split("\n")[0];
+        postData = postData.replace(title + "\n", "");
         if (password.startsWith("password=") && password.split("=")[1] === REQUEST_PASSWORD) {
-          await this.notice(postData);
+          const embed = new EmbedBuilder()
+            .setColor('#9A8ED7')
+            .setTitle(title)
+            .setDescription(postData)
+            .setFooter({ text: '주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.', iconURL: 'https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true' });
+
+          await this.notice(embed);
         }
         res.writeHead(200, { "Content-Type": "text/html" });
         res.write("OK");
