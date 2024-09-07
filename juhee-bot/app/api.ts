@@ -17,7 +17,8 @@ export default class HttpServer {
     for (const server of servers) {
       const ttsChannel = server.dataValues.ttsChannel;
       // if(ttsChannel && server.dataValues.id == '1215573434159996948') {
-      if (ttsChannel) {
+      if(ttsChannel && server.dataValues.id == '1119640137580675103') {
+      // if (ttsChannel) {
         this.client.channels
           .fetch(ttsChannel)
           .then((channel) => {
@@ -27,13 +28,13 @@ export default class HttpServer {
             ) {
               try {
                 channel.send({ embeds: [data] });
-              } catch (error) {
-                console.log(error);
+              } catch (e) {
+                console.log(e);
               }
             }
           })
-          .catch((error) => {
-            console.log(error);
+          .catch((e) => {
+            console.log(e);
           });
       }
     }
