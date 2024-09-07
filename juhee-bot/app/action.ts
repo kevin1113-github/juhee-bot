@@ -1,4 +1,4 @@
-import { BaseInteraction, ChatInputCommandInteraction, GuildMember, Interaction, InteractionType, Message, MessageInteraction, VoiceBasedChannel, blockQuote } from "discord.js";
+import { BaseInteraction, ChatInputCommandInteraction, GuildMember, Interaction, InteractionType, Message, MessageInteraction, PartialGroupDMChannel, VoiceBasedChannel, blockQuote } from "discord.js";
 import { AudioPlayer, EndBehaviorType, VoiceConnection, getVoiceConnection, joinVoiceChannel } from "@discordjs/voice";
 import { Servers } from "./dbObject.js";
 import { DATA } from "./types.js";
@@ -68,6 +68,9 @@ export default class Action {
     if (!this.interaction.channel) {
       return;
     }
+		if (this.interaction.channel instanceof PartialGroupDMChannel) {
+			return;
+		}
 		
 		const server: DATA | null = await Servers.findOne({ where: { id: this.interaction.guildId } });
     if (!server) {

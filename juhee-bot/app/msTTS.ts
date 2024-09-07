@@ -22,7 +22,7 @@ async function msTTS(textData: string, callback: Function, voiceName: string = D
 
   const speechSynthesizer = new sdk.SpeechSynthesizer(speechConfig);
   //  xml:lang="ko-KR"
-  const ssml = `<speak xmlns="http://www.w3.org/2001/10/synthesis" version="1.0"><voice name="${voice}"><prosody rate="+${speed??30}.00%">${textData}</prosody></voice></speak>`
+  const ssml = `<speak xmlns="http://www.w3.org/2001/10/synthesis" version="1.0" xml:lang="ko-KR"><voice name="${voice}"><prosody rate="+${speed??30}.00%">${textData}</prosody></voice></speak>`
 
   speechSynthesizer.speakSsmlAsync(
     ssml, result => {

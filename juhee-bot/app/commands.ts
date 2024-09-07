@@ -1,15 +1,22 @@
-import { ChannelType, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from 'discord.js';
 
-const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">[] = [
+const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup"> | SlashCommandOptionsOnlyBuilder[] = [
   new SlashCommandBuilder()
     .setName('들어와')
-    .setDescription('음성채널에 참가합니다.')
-    .setDMPermission(false),
+    .setDescription('음성채널에 참가합니다.'),
 
   new SlashCommandBuilder()
     .setName('나가')
-    .setDescription('음성채널에서 나갑니다.')
-    .setDMPermission(false),
+    .setDescription('음성채널에서 나갑니다.'),
+
+  // new SlashCommandBuilder()
+  //   .setName('채널설정')
+  //   .setDescription('tts 채널을 설정합니다.')
+  //   .addChannelOption(option =>
+  //     option.setName('채널')
+  //       .setDescription('tts를 재생할 채널')
+  //       .addChannelTypes(ChannelType.GuildText)
+  //       .setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('채널설정')
@@ -18,13 +25,11 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
       option.setName('채널')
         .setDescription('tts를 재생할 채널')
         .addChannelTypes(ChannelType.GuildText)
-        .setRequired(true))
-    .setDMPermission(false),
+        .setRequired(true)),
   
   new SlashCommandBuilder()
     .setName('채널해제')
-    .setDescription('tts 채널을 해제합니다.')
-    .setDMPermission(false),
+    .setDescription('tts 채널을 해제합니다.'),
   
   new SlashCommandBuilder()
     .setName('목소리설정')
@@ -43,8 +48,7 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
           { name: '순복(여)', value: 'SoonBokNeural' },
           { name: '유진(여)', value: 'YuJinNeural' },
         )
-        .setRequired(true))
-    .setDMPermission(false),
+        .setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('속도설정')
@@ -54,18 +58,15 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setDescription('tts 속도')
         .setMinValue(0)
         .setMaxValue(100)
-        .setRequired(true))
-    .setDMPermission(false),
+        .setRequired(true)),
       
   new SlashCommandBuilder()
     .setName('음소거')
-    .setDescription('주희가 채팅을 치지 않도록 음소거합니다.')
-    .setDMPermission(false),
+    .setDescription('주희가 채팅을 치지 않도록 음소거합니다.'),
   
   new SlashCommandBuilder()
     .setName('음소거해제')
-    .setDescription('주희의 음소거를 해제합니다.')
-    .setDMPermission(false),
+    .setDescription('주희의 음소거를 해제합니다.'),
 
   // new SlashCommandBuilder()
   //   .setName('주희야')
