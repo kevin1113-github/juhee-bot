@@ -15,13 +15,26 @@ const client = new TextAnalyticsClient(LANGUAGE_ENDPOINT, new AzureKeyCredential
 async function msTTS(textData: string, callback: Function, voiceName: string = DEFAULT_VOICE, speed: number = 30) {
   const speechConfig = sdk.SpeechConfig.fromSubscription(SPEECH_KEY, SPEECH_REGION);
   
-  const voice = (await recognizeLanguage(textData)) == 'ja' ? 'ja-JP-AoiNeural' : 'ko-KR-' + (voiceName ?? DEFAULT_VOICE);
+  let voice: string;
+  switch (await recognizeLanguage(textData)) {
+    case 'ko':
+      voice = 'ko-KR-' + (voiceName ?? DEFAULT_VOICE);
+      break;
+    case 'ja':
+      voice = 'ja-JP-AoiNeural';
+      break;
+    case 'en':
+      voice = 'en-US-AnaNeural';
+      break;
+    default:
+      voice = 'ko-KR-' + (voiceName ?? DEFAULT_VOICE);
+      break;
+  }
 
   speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Ogg48Khz16BitMonoOpus;
   speechConfig.speechSynthesisVoiceName = voice;
 
   const speechSynthesizer = new sdk.SpeechSynthesizer(speechConfig);
-  //  xml:lang="ko-KR"
   const ssml = `<speak xmlns="http://www.w3.org/2001/10/synthesis" version="1.0" xml:lang="ko-KR"><voice name="${voice}"><prosody rate="+${speed??30}.00%">${textData}</prosody></voice></speak>`
 
   speechSynthesizer.speakSsmlAsync(
