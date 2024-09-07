@@ -1,4 +1,4 @@
-import { Client, EmbedBuilder } from "discord.js";
+import { Client, EmbedBuilder, PartialGroupDMChannel } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
 const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? '';
@@ -19,7 +19,7 @@ export default class HttpServer {
       // if(ttsChannel && server.dataValues.id == '1215573434159996948') {
       if(ttsChannel) {
         this.client.channels.fetch(ttsChannel).then(channel => {
-          if(channel?.isTextBased()){
+          if(channel?.isTextBased() && !(channel instanceof PartialGroupDMChannel)) {
             try {
               channel.send({ embeds: [data] });
             } catch (error) {
