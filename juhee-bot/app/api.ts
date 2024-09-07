@@ -1,7 +1,7 @@
 import { Client, EmbedBuilder, PartialGroupDMChannel } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
-const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? '';
+const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? "";
 
 import http from "http";
 import { Servers } from "./dbObject.js";
@@ -17,21 +17,32 @@ export default class HttpServer {
     for (const server of servers) {
       const ttsChannel = server.dataValues.ttsChannel;
       // if(ttsChannel && server.dataValues.id == '1215573434159996948') {
-      if(ttsChannel) {
-        this.client.channels.fetch(ttsChannel).then(channel => {
-          if(channel?.isTextBased() && !(channel instanceof PartialGroupDMChannel)) {
-            try {
-              channel.send({ embeds: [data] });
-            } catch (error) {
-              console.log(error);
+      if (ttsChannel) {
+        this.client.channels
+          .fetch(ttsChannel)
+          .then((channel) => {
+            if (
+              channel?.isTextBased() &&
+              !(channel instanceof PartialGroupDMChannel)
+            ) {
+              try {
+                channel.send({ embeds: [data] });
+              } catch (error) {
+                console.log(error);
+              }
             }
-          }
-        });
+          })
+          .catch((error) => {
+            console.log(error);
+          });
       }
     }
   }
 
-  private requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
+  private requestHandler = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ) => {
     if (req.url === "/notice" && req.method === "POST") {
       let postData: string = "";
       req.on("data", (data) => {
@@ -40,15 +51,22 @@ export default class HttpServer {
       req.on("end", async () => {
         const password = postData.split(",")[0];
         postData = postData.split(",")[1];
-        postData = postData.replace(/\\n/g, '\n');
+        postData = postData.replace(/\\n/g, "\n");
         const title: string = postData.split("\n")[0];
         postData = postData.replace(title + "\n", "");
-        if (password.startsWith("password=") && password.split("=")[1] === REQUEST_PASSWORD) {
+        if (
+          password.startsWith("password=") &&
+          password.split("=")[1] === REQUEST_PASSWORD
+        ) {
           const embed = new EmbedBuilder()
-            .setColor('#9A8ED7')
+            .setColor("#9A8ED7")
             .setTitle(title)
             .setDescription(postData)
-            .setFooter({ text: '주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.', iconURL: 'https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true' });
+            .setFooter({
+              text: "주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.",
+              iconURL:
+                "https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true",
+            });
 
           await this.notice(embed);
         }
@@ -56,13 +74,12 @@ export default class HttpServer {
         res.write("OK");
         res.end();
       });
-    }
-    else {
+    } else {
       res.writeHead(404, { "Content-Type": "text/html" });
       res.write("<h1>404 Not Found</h1>");
       res.end();
     }
-  }
+  };
 
   constructor(client: Client) {
     this.server = http.createServer(this.requestHandler);
