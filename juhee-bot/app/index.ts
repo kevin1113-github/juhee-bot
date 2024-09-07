@@ -292,7 +292,7 @@ client.on(Events.MessageCreate, async (message) => {
       await guildData.action.joinVoiceChannel(audioPlayer);
     }
 
-    msTTS(
+    await msTTS(
       parseMessage(message.content),
       (stream: PassThrough) => {
         // console.log(stream);

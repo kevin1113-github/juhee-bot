@@ -3,7 +3,7 @@
 <a href="https://hits.seeyoufarm.com"><img src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fkevin1113-github%2Fjuhee-bot&count_bg=%2379C83D&title_bg=%23555555&icon=&icon_color=%23E7E7E7&title=View&edge_flat=false"/></a>
 
 
-## 주희봇 (juhee-bot) v3.2.3
+## 주희봇 (juhee-bot) v3.3
 
 <img src="./juhee-profile.png" width="30%" height="30%" />
 
@@ -77,6 +77,7 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 
 ### 기타 설명
 - 통화방에 연결 된 상태에서 30분 이상 주희봇과 상호작용이 없다면 자동으로 통화방을 나갑니다.
+- 통화방에 모든사람이 나가거나 봇만 존재한다면 자동으로 통화방을 나갑니다.
 - 통화방 밖에 있는 사용자들의 채팅은 읽어주지 않습니다.
 - tts 채널과 음소거 설정을 위해 각 서버의 Guild ID를, 목소리 설정이나 속도 설정과 같은 사용자 개개인의 맞춤 설정을 위해 사용자 ID를 수집, 보관 할 수 있습니다. 개인정보 보호에 관한 내용에 대한 문의는 [kevin1113dev@gmail.com]를 통해주세요.
 - 본 프로젝트는 1인 개발 프로젝트 입니다. 협업 관련 문의는 [kevin1113dev@gmail.com]으로 연락 바랍니다.
@@ -84,6 +85,11 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 
 
 ## 업데이트 로그
+
+### [2024.08.16] 주희 v3.3 업데이트 내역
+- 이제 통화방에 아무도 남아있지 않으면 주희봇이 자동으로 통화방을 나갑니다.
+- 공지사항이 임베드 형식으로 변경되었습니다.
+<img width="537" alt="스크린샷 2024-08-16 오후 7 54 21" src="https://github.com/user-attachments/assets/7b0756d9-f3e4-42cf-83dd-7b130b0844af">
 
 ### [2024.04.12] 주희 v3.2.3 업데이트 내역
 - 주희봇에 공지 기능이 추가되었습니다! 이제 `TTS채널`을 등록 해두면 주희봇이 그 채널에 업데이트 내역 등 공지를 올려줍니다.
@@ -114,7 +120,7 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 - 로그 자동화
 - 도움말 기능 추가하기
 - 피드백 기능 추가하기
-- 통화방에 인원이 모두 나가면 자동으로 나가기
+- ~~통화방에 인원이 모두 나가면 자동으로 나가기~~
 
 
 ## 버그 제보 및 기타 개발 문의
