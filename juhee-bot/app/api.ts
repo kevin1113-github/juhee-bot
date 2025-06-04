@@ -149,7 +149,7 @@ export default class HttpServer {
     fs.writeFileSync(filepath, await result());
 
     // Get public URL (assuming your server is running on port 3000)
-    const publicUrl = `${JUHEE_URL} + :8080/status/${filename}`;
+    const publicUrl = `${JUHEE_URL}:8080/status/${filename}`;
 
     return publicUrl;
   }
