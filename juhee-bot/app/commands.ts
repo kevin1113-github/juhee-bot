@@ -51,6 +51,10 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('현재목소리')
+    .setDescription('현재 설정 된 목소리를 확인합니다.'),
+
+  new SlashCommandBuilder()
     .setName('속도설정')
     .setDescription('tts 속도를 변경합니다. (0: 느림, 100: 빠름)')
     .addIntegerOption(option =>

@@ -170,6 +170,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await guildData.action.reply(`tts 채널이 해제되었습니다.`);
     }
 
+    if (interaction.commandName === "현재목소리") {
+      const user: DATA | null = await Users.findOne({
+        where: { id: interaction.user.id },
+      });
+      if (!user) {
+        await guildData.action.reply(`유저가 등록되지 않았습니다.`);
+        return;
+      }
+
+      const ttsVoice: string = user.dataValues.ttsVoice ?? "SeoHyeonNeural";
+      const ttsName: string = [{ name: '선히(여)', value: 'SunHiNeural' },
+          { name: '인준(남)', value: 'InJoonNeural' },
+          { name: '봉진(남)', value: 'BongJinNeural' },
+          { name: '국민(남)', value: 'GookMinNeural' },
+          // { name: '현수(남)', value: 'HyunsuNeural' },
+          { name: '지민(여)', value: 'JiMinNeural' },
+          { name: '서현(여)', value: 'SeoHyeonNeural' },
+          { name: '순복(여)', value: 'SoonBokNeural' },
+          { name: '유진(여)', value: 'YuJinNeural' },].find(kv => kv.value === ttsVoice)?.name ?? '선히(여)';
+
+      await guildData.action.reply(`현재 tts 목소리: \`ttsName\``);
+    }
+
     if (interaction.commandName === "목소리설정") {
       const voice: string =
         interaction.options.getString("목소리") ?? "SeoHyeonNeural";
