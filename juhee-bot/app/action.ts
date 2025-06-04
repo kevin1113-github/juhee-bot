@@ -12,7 +12,10 @@ import {
 } from "discord.js";
 import {
   AudioPlayer,
+  CreateVoiceConnectionOptions,
+  DiscordGatewayAdapterCreator,
   EndBehaviorType,
+  JoinVoiceChannelOptions,
   VoiceConnection,
   getVoiceConnection,
   joinVoiceChannel,
@@ -77,10 +80,11 @@ export default class Action {
       !voiceConnection ||
       voiceConnection.joinConfig.channelId != voiceChannel.id
     ) {
+      // let a:CreateVoiceConnectionOptions & JoinVoiceChannelOptions;
       joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: voiceChannel.guild.id,
-        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+        adapterCreator: voiceChannel.guild.voiceAdapterCreator as DiscordGatewayAdapterCreator,
         selfDeaf: true,
         selfMute: false,
       }).subscribe(audioPlayer);
