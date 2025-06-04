@@ -42,7 +42,7 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
           { name: '인준(남)', value: 'InJoonNeural' },
           { name: '봉진(남)', value: 'BongJinNeural' },
           { name: '국민(남)', value: 'GookMinNeural' },
-          { name: '현수(남)', value: 'HyunsuNeural' },
+          // { name: '현수(남)', value: 'HyunsuNeural' },
           { name: '지민(여)', value: 'JiMinNeural' },
           { name: '서현(여)', value: 'SeoHyeonNeural' },
           { name: '순복(여)', value: 'SoonBokNeural' },

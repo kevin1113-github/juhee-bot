@@ -7,6 +7,8 @@ import http from "http";
 import { Servers } from "./dbObject.js";
 import { DATA } from "./types.js";
 
+export let recognizeOption = false;
+
 export default class HttpServer {
   private server: http.Server;
   private client: Client;
@@ -51,7 +53,7 @@ export default class HttpServer {
       });
       req.on("end", async () => {
         const password = postData.split(",")[0];
-        postData = postData.split(",")[1];
+        postData = postData.split(",").slice(1).join(",");
         postData = postData.replace(/\\n/g, "\n");
         const title: string = postData.split("\n")[0];
         postData = postData.replace(title + "\n", "");
@@ -74,6 +76,28 @@ export default class HttpServer {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.write("OK");
         res.end();
+      });
+    } else if (req.url === "/toggleRecognize" && req.method === "POST") {
+      let postData: string = "";
+      req.on("data", (data) => {
+        postData += typeof data === "string" ? data : data.toString();
+      });
+      req.on("end", async () => {
+        const password = postData;
+        if (
+          password.startsWith("password=") &&
+          password.split("=")[1] === REQUEST_PASSWORD
+        ) {
+          recognizeOption = !recognizeOption;
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.write(recognizeOption ? "recognizeOption is enabled." : "recognizeOption is disabled.");
+          res.end();
+        }
+        else {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.write("error");
+          res.end();
+        }
       });
     } else {
       res.writeHead(404, { "Content-Type": "text/html" });

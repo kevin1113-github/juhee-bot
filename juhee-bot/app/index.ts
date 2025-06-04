@@ -292,18 +292,22 @@ client.on(Events.MessageCreate, async (message) => {
       await guildData.action.joinVoiceChannel(audioPlayer);
     }
 
-    await msTTS(
-      parseMessage(message.content),
-      (stream: PassThrough) => {
-        // console.log(stream);
-        const resource = createAudioResource(stream, {
-          inputType: StreamType.OggOpus,
-        });
-        audioPlayer?.play(resource);
-      },
-      user.dataValues.ttsVoice,
-      user.dataValues.speed
-    );
+    try {
+      await msTTS(
+        parseMessage(message.content),
+        (stream: PassThrough) => {
+          // console.log(stream);
+          const resource = createAudioResource(stream, {
+            inputType: StreamType.OggOpus,
+          });
+          audioPlayer?.play(resource);
+        },
+        user.dataValues.ttsVoice,
+        user.dataValues.speed
+      );
+    } catch (e) {
+      console.log(e)
+    }
 
     if (guildData.timeOut) {
       clearTimeout(guildData.timeOut);
@@ -372,6 +376,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 client.login(TOKEN);
 
 function parseMessage(messageContent: string): string {
+  messageContent = messageContent.substring(0, 200);
+
   if (messageContent == "ㅋㅋ") return "크크";
   else if (messageContent == "ㅋㅋㅋ") return "크크크";
   else if (messageContent == "ㅎㅇ") return "하이";
@@ -383,6 +389,7 @@ function parseMessage(messageContent: string): string {
   const channelReg = new RegExp(/<#([0-9]{3,})>/, "g");
   const urlReg = new RegExp(/http[s]?:\/\/([\S]{3,})/, "g");
 
+  const wisperReg = new RegExp(/\([^)]+\)/);
   const byeReg = new RegExp(/ㅃㅃ\s/, "g");
   const lolReg = new RegExp(/(ㅋ{3,})/, "g");
   const dotReg = new RegExp(/(\.{2,})/, "g");
@@ -391,6 +398,7 @@ function parseMessage(messageContent: string): string {
   messageContent = messageContent.replace(roleReg, " 역할 ");
   messageContent = messageContent.replace(channelReg, " 채널 ");
   messageContent = messageContent.replace(urlReg, " 링크 ");
+  messageContent = messageContent.replace(wisperReg, " ");
   messageContent = messageContent.replace(byeReg, " 빠빠 ");
   messageContent = messageContent.replace(lolReg, " 크크크 ");
   messageContent = messageContent.replace(dotReg, " ");
