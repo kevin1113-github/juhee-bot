@@ -190,7 +190,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           { name: '순복(여)', value: 'SoonBokNeural' },
           { name: '유진(여)', value: 'YuJinNeural' },].find(kv => kv.value === ttsVoice)?.name ?? '선히(여)';
 
-      await guildData.action.reply(`현재 tts 목소리: \`ttsName\``);
+      await guildData.action.reply(`현재 tts 목소리: \`${ttsName}\``);
     }
 
     if (interaction.commandName === "목소리설정") {
