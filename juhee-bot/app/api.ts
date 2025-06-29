@@ -38,25 +38,77 @@ export default class HttpServer {
       const servers: DATA[] = await Servers.findAll();
       logger.info(`📢 Sending notice to ${servers.length} servers`);
       
+      let successCount = 0;
+      let failureCount = 0;
+      let missingAccessCount = 0;
+      let unknownChannelCount = 0;
+      let otherErrorCount = 0;
+      let noChannelCount = 0;
+      
       for (const server of servers) {
         const ttsChannel = server.dataValues.ttsChannel;
-        if (ttsChannel) {
-          try {
-            const channel = await this.client.channels.fetch(ttsChannel);
-            if (
-              channel?.isTextBased() &&
-              !(channel instanceof PartialGroupDMChannel)
-            ) {
-              await channel.send({ embeds: [data] });
-              logger.debug(`✅ Notice sent to server ${server.dataValues.id}`);
-            }
-          } catch (e) {
-            logger.error(`Failed to send notice to channel ${ttsChannel}:`, e);
+        if (!ttsChannel) {
+          noChannelCount++;
+          logger.debug(`⚠️ Server ${server.dataValues.id} has no TTS channel configured`);
+          continue;
+        }
+
+        try {
+          const channel = await this.client.channels.fetch(ttsChannel);
+          if (
+            channel?.isTextBased() &&
+            !(channel instanceof PartialGroupDMChannel)
+          ) {
+            await channel.send({ embeds: [data] });
+            logger.debug(`✅ Notice sent to server ${server.dataValues.id}`);
+            successCount++;
+          } else {
+            logger.warn(`⚠️ Channel ${ttsChannel} in server ${server.dataValues.id} is not a valid text channel`);
+            otherErrorCount++;
+            failureCount++;
+          }
+        } catch (e: any) {
+          failureCount++;
+          
+          // Discord API 에러 코드별 처리
+          if (e.code === 50001) {
+            // Missing Access
+            missingAccessCount++;
+            logger.warn(`🔒 Missing access to channel ${ttsChannel} in server ${server.dataValues.id}`);
+          } else if (e.code === 10003) {
+            // Unknown Channel
+            unknownChannelCount++;
+            logger.warn(`❌ Channel ${ttsChannel} not found in server ${server.dataValues.id} - channel may have been deleted`);
+          } else if (e.code === 50013) {
+            // Missing Permissions
+            logger.warn(`⛔ Missing permissions to send message to channel ${ttsChannel} in server ${server.dataValues.id}`);
+            otherErrorCount++;
+          } else if (e.code === 10004) {
+            // Unknown Guild
+            logger.warn(`❌ Server ${server.dataValues.id} not found - bot may have been kicked`);
+            otherErrorCount++;
+          } else {
+            // 기타 에러
+            otherErrorCount++;
+            logger.error(`❌ Failed to send notice to channel ${ttsChannel} in server ${server.dataValues.id}:`, {
+              code: e.code,
+              message: e.message,
+              status: e.status,
+              method: e.method,
+              url: e.url
+            });
           }
         }
       }
+      
+      // 공지 전송 결과 요약
+      logger.info(`📊 Notice sending completed: ${successCount} successful, ${failureCount} failed out of ${servers.length} servers`);
+      if (failureCount > 0) {
+        logger.info(`📋 Failure breakdown: ${missingAccessCount} missing access, ${unknownChannelCount} unknown channels, ${otherErrorCount} other errors, ${noChannelCount} no channel configured`);
+      }
+      
     } catch (error) {
-      logger.error("Failed to send notices:", error);
+      logger.error("❌ Critical error occurred while sending notices:", error);
     }
   }
 
