@@ -6,6 +6,20 @@ import path from "path";
 
 const DEV_MODE: boolean = process.env.DEV_MODE === "true";
 
+// 한국 시간은 UTC보다 9시간 빠르기 때문에 9시간의 밀리세컨드를 표현한다.
+const koreaTimeDiff = 9 * 60 * 60 * 1000;
+
+// 한국 시간을 반환하는 헬퍼 함수
+function getKoreaTime(date?: Date): Date {
+  const now = date || new Date();
+  return new Date(now.getTime() + koreaTimeDiff);
+}
+
+// 한국 시간을 ISO 형식으로 반환하는 헬퍼 함수
+function getKoreaISOString(date?: Date): string {
+  return getKoreaTime(date).toISOString();
+}
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -30,8 +44,8 @@ class Logger {
         fs.mkdirSync(logsDir, { recursive: true });
       }
 
-      // 봇 시작 시간으로 로그 파일명 생성
-      const startTime = new Date();
+      // 봇 시작 시간으로 로그 파일명 생성 (한국 시간 사용)
+      const startTime = getKoreaTime();
       const timestamp = startTime.toISOString()
         .replace(/:/g, "-")
         .replace(/\./g, "-")
@@ -44,9 +58,9 @@ class Logger {
       // 로그 스트림 생성
       this.logStream = fs.createWriteStream(this.logFilePath, { flags: "a" });
       
-      // 로그 파일 시작 헤더 작성
+      // 로그 파일 시작 헤더 작성 (한국 시간 사용)
       const mode = DEV_MODE ? "DEVELOPMENT" : "PRODUCTION";
-      this.writeToFile(`=== Juhee Bot Log Started at ${startTime.toISOString()} ===\n`);
+      this.writeToFile(`=== Juhee Bot Log Started at ${getKoreaISOString()} (KST) ===\n`);
       this.writeToFile(`Mode: ${mode}\n`);
       this.writeToFile(`Process ID: ${process.pid}\n`);
       this.writeToFile(`Node Version: ${process.version}\n`);
@@ -67,7 +81,7 @@ class Logger {
   }
 
   private formatMessage(level: string, message: string): string {
-    const timestamp = new Date().toISOString();
+    const timestamp = getKoreaISOString();
     return `[${timestamp}] [${level}] ${message}`;
   }
 
@@ -197,7 +211,7 @@ class Logger {
   cleanup(): void {
     try {
       if (this.logStream) {
-        this.writeToFile(`\n=== Juhee Bot Log Ended at ${new Date().toISOString()} ===\n`);
+        this.writeToFile(`\n=== Juhee Bot Log Ended at ${getKoreaISOString()} (KST) ===\n`);
         this.logStream.end();
         this.logStream = null;
       }
