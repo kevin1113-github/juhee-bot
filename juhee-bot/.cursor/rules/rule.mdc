@@ -1,8 +1,0 @@
----
-description: 
-globs: 
-alwaysApply: true
----
-npm run start 또는 npm start를 실행하지마.
-
-내가 직접 빌드하고 테스트 해볼게.

@@ -150,3 +150,5 @@ lib
 include
 
 bin
+
+.cursor
