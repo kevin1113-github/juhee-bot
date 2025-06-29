@@ -9,15 +9,6 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
     .setName('나가')
     .setDescription('음성채널에서 나갑니다.'),
 
-  // new SlashCommandBuilder()
-  //   .setName('채널설정')
-  //   .setDescription('tts 채널을 설정합니다.')
-  //   .addChannelOption(option =>
-  //     option.setName('채널')
-  //       .setDescription('tts를 재생할 채널')
-  //       .addChannelTypes(ChannelType.GuildText)
-  //       .setRequired(true)),
-
   new SlashCommandBuilder()
     .setName('채널설정')
     .setDescription('tts 채널을 설정합니다.')
@@ -73,9 +64,16 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
     .setDescription('주희의 음소거를 해제합니다.'),
 
   // new SlashCommandBuilder()
-  //   .setName('주희야')
-  //   .setDescription('음성을 인식하여 노래를 플레이합니다.'),
-      
+  //   .setName('동시재생')
+  //   .setDescription('여러 사람의 메시지를 동시에 TTS로 재생합니다.')
+  //   .addBooleanOption(option =>
+  //     option.setName('활성화')
+  //       .setDescription('동시 재생 기능을 활성화/비활성화')
+  //       .setRequired(true)),
+
+  // new SlashCommandBuilder()
+  //   .setName('믹서상태')
+  //   .setDescription('현재 동시재생 믹서 상태를 확인합니다.'),
 
   // new SlashCommandBuilder()
   //   .setName('도움말')

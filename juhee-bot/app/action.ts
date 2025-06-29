@@ -1,30 +1,22 @@
 import {
-  BaseInteraction,
   ChatInputCommandInteraction,
   GuildMember,
   Interaction,
-  InteractionType,
   Message,
-  MessageInteraction,
+  MessageFlags,
   PartialGroupDMChannel,
   VoiceBasedChannel,
-  blockQuote,
 } from "discord.js";
 import {
   AudioPlayer,
-  CreateVoiceConnectionOptions,
   DiscordGatewayAdapterCreator,
-  EndBehaviorType,
-  JoinVoiceChannelOptions,
   VoiceConnection,
   getVoiceConnection,
   joinVoiceChannel,
 } from "@discordjs/voice";
 import { Servers } from "./dbObject.js";
 import { DATA } from "./types.js";
-import { types } from "util";
-// import { reqSTT } from './reqSTT.js';
-// import { GetWeatherImage } from './weather.js';
+import { logger } from "./logger.js";
 
 export default class Action {
   interaction: Interaction | Message | null;
@@ -42,118 +34,139 @@ export default class Action {
   }
 
   async exitVoiceChannel() {
-    if (!this.interaction) return;
-    if (!this.interaction.guildId) return;
+    try {
+      if (!this.interaction) return;
+      if (!this.interaction.guildId) return;
 
-    const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
-      this.interaction.guildId
-    );
-    if (!voiceConnection) {
-      await this.reply("음성채널에 연결되어 있지 않습니다");
-      return;
-    } else {
-      voiceConnection.destroy();
-      await this.reply("음성채널 나감");
-      return;
+      const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
+        this.interaction.guildId
+      );
+      if (!voiceConnection) {
+        await this.reply("음성채널에 연결되어 있지 않습니다");
+        return;
+      } else {
+        voiceConnection.destroy();
+        await this.reply("음성채널 나감");
+        logger.info(`🚪 Left voice channel in guild ${this.interaction.guildId}`);
+        return;
+      }
+    } catch (error) {
+      logger.error("Failed to exit voice channel:", error);
+      await this.reply("음성채널 나가기 중 오류가 발생했습니다.");
     }
   }
 
   async joinVoiceChannel(audioPlayer: AudioPlayer) {
-    if (!this.interaction) return;
-    if (
-      !this.interaction.guildId ||
-      !(this.interaction.member instanceof GuildMember)
-    )
-      return;
+    try {
+      if (!this.interaction) return;
+      if (
+        !this.interaction.guildId ||
+        !(this.interaction.member instanceof GuildMember)
+      )
+        return;
 
-    const voiceChannel: VoiceBasedChannel | null =
-      this.interaction.member.voice.channel;
-    if (!voiceChannel) {
-      await this.reply("음성 채널에 먼저 접속해주세요");
-      return;
-    }
+      const voiceChannel: VoiceBasedChannel | null =
+        this.interaction.member.voice.channel;
+      if (!voiceChannel) {
+        await this.reply("음성 채널에 먼저 접속해주세요");
+        return;
+      }
 
-    const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
-      this.interaction.guildId
-    );
-    if (
-      !voiceConnection ||
-      voiceConnection.joinConfig.channelId != voiceChannel.id
-    ) {
-      // let a:CreateVoiceConnectionOptions & JoinVoiceChannelOptions;
-      joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: voiceChannel.guild.id,
-        adapterCreator: voiceChannel.guild.voiceAdapterCreator as DiscordGatewayAdapterCreator,
-        selfDeaf: true,
-        selfMute: false,
-      }).subscribe(audioPlayer);
-      await this.reply("음성 채널 접속 성공");
-      return;
-    } else {
-      await this.reply("이미 접속 되어 있습니다");
-      return;
+      const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
+        this.interaction.guildId
+      );
+      if (
+        !voiceConnection ||
+        voiceConnection.joinConfig.channelId != voiceChannel.id
+      ) {
+        const connection = joinVoiceChannel({
+          channelId: voiceChannel.id,
+          guildId: voiceChannel.guild.id,
+          adapterCreator: voiceChannel.guild.voiceAdapterCreator as DiscordGatewayAdapterCreator,
+          selfDeaf: true,
+          selfMute: false,
+        });
+        
+        connection.subscribe(audioPlayer);
+        
+        // Handle connection events
+        connection.on('error', (error) => {
+          logger.reconnectionFailed(error);
+        });
+        
+        await this.reply("음성 채널 접속 성공");
+        logger.info(`🔊 Joined voice channel "${voiceChannel.name}" in guild ${this.interaction.guildId}`);
+        return;
+      } else {
+        await this.reply("이미 접속 되어 있습니다");
+        return;
+      }
+    } catch (error) {
+      logger.error("Failed to join voice channel:", error);
+      await this.reply("음성채널 접속 중 오류가 발생했습니다.");
     }
   }
 
   async send(msg: string): Promise<void> {
-    if (!this.interaction) return;
-    if (!this.interaction.channel) {
-      return;
-    }
-    if (this.interaction.channel instanceof PartialGroupDMChannel) {
-      return;
-    }
-
-    const server: DATA | null = await Servers.findOne({
-      where: { id: this.interaction.guildId },
-    });
-    if (!server) {
-      console.error("서버가 등록되지 않았습니다.");
-      return;
-    }
-    if (server.dataValues.isMuted) return;
-
     try {
+      if (!this.interaction) return;
+      if (!this.interaction.channel) {
+        return;
+      }
+      if (this.interaction.channel instanceof PartialGroupDMChannel) {
+        return;
+      }
+
+      const server: DATA | null = await Servers.findOne({
+        where: { id: this.interaction.guildId },
+      });
+      if (!server) {
+        logger.serverNotRegistered();
+        return;
+      }
+      if (server.dataValues.isMuted) return;
+
       await this.interaction.channel.send(msg);
-    } catch (e) {
-      console.log(e);
+    } catch (error) {
+      logger.error("Failed to send message:", error);
     }
   }
 
   async reply(msg: string): Promise<void> {
-    if (!this.interaction) return;
-    if (
-      !(
-        this.interaction instanceof Message ||
-        this.interaction.isChatInputCommand()
+    try {
+      if (!this.interaction) return;
+      if (
+        !(
+          this.interaction instanceof Message ||
+          this.interaction.isChatInputCommand()
+        )
       )
-    )
-      return;
+        return;
 
-    const server: DATA | null = await Servers.findOne({
-      where: { id: this.interaction.guildId },
-    });
-    if (!server) {
-      console.error("서버가 등록되지 않았습니다.");
-      return;
-    }
+      const server: DATA | null = await Servers.findOne({
+        where: { id: this.interaction.guildId },
+      });
+      if (!server) {
+        logger.serverNotRegistered();
+        return;
+      }
 
-    if (this.isReplied) {
-      try {
+      if (this.isReplied) {
         if (server.dataValues.isMuted) return;
         await this.send(msg);
-      } catch (e) {
-        console.log(e);
+      } else {
+        if (this.interaction instanceof ChatInputCommandInteraction) {
+          await this.interaction.reply({
+            content: msg,
+            flags: server.dataValues.isMuted? MessageFlags.Ephemeral : undefined,
+          });
+        } else if (!server.dataValues.isMuted) {
+          await this.interaction.reply(msg);
+        }
+        this.isReplied = true;
       }
-    } else {
-      if (this.interaction instanceof ChatInputCommandInteraction)
-        await this.interaction.reply({
-          content: msg,
-          ephemeral: server.dataValues.isMuted,
-        });
-      else if (!server.dataValues.isMuted) await this.interaction.reply(msg);
-      this.isReplied = true;
+    } catch (error) {
+      logger.error("Failed to reply to interaction:", error);
     }
   }
 
@@ -220,21 +233,5 @@ export default class Action {
   // 			return;
   // 		}
   // 	});
-  // }
-
-  // eval(code) {
-  // 	try {
-  // 		const answer = eval(code);
-  // 		let answer_string = 'execute:\n' + codeBlock('javascript', code)
-  // 			+ '\nanswer:\n';
-  // 		if (typeof answer == 'undefined') {
-  // 			answer_string += 'undefined';
-  // 		} else {
-  // 			answer_string += answer.toString();
-  // 		}
-  // 		this.reply(answer_string);
-  // 	} catch(e) {
-  // 		this.reply(e.toString());
-  // 	};
   // }
 }

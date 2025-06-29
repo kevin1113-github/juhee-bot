@@ -1,6 +1,6 @@
-import { Sequelize } from "sequelize";
+import { Sequelize, DataTypes } from "sequelize";
 
-export default (sequelize: Sequelize, DataTypes: any) => {
+export default (sequelize: Sequelize) => {
 	return sequelize.define('servers', {
 		id: {
 			type: DataTypes.STRING,
@@ -14,6 +14,11 @@ export default (sequelize: Sequelize, DataTypes: any) => {
 			type: DataTypes.BOOLEAN,
 			allowNull: false,
 			defaultValue: false,
-		}
+		},
+		// simultaneousPlayback: {
+		// 	type: DataTypes.BOOLEAN,
+		// 	allowNull: false,
+		// 	defaultValue: true,
+		// }
 	});
 };

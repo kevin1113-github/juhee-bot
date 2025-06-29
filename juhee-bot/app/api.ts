@@ -1,4 +1,4 @@
-import { Client, EmbedBuilder, Guild, PartialGroupDMChannel } from "discord.js";
+import { Client, EmbedBuilder, PartialGroupDMChannel } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
 const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? "";
@@ -7,7 +7,7 @@ const JUHEE_URL: string = process.env.JUHEE_URL ?? "";
 import http from "http";
 import { JoinedServer, Servers, Users } from "./dbObject.js";
 import { DATA } from "./types.js";
-
+import { logger } from "./logger.js";
 
 import { Console } from "node:console";
 import { Transform } from "node:stream";
@@ -15,14 +15,14 @@ import path from "node:path";
 import fs from "node:fs";
 
 const ts: Transform = new Transform({
-  transform(chunk, enc, cb) {
+  transform(chunk, _enc, cb) {
     cb(null, chunk);
   },
 });
-const logger = new Console({ stdout: ts });
+const tableLogger = new Console({ stdout: ts });
 
 function getTable(data: any) {
-  logger.table(data);
+  tableLogger.table(data);
   return (ts.read() || "").toString();
 }
 
@@ -33,52 +33,55 @@ export default class HttpServer {
   private client: Client;
 
   private async notice(data: EmbedBuilder) {
-    await Servers.sync();
-    const servers: DATA[] = await Servers.findAll();
-    for (const server of servers) {
-      const ttsChannel = server.dataValues.ttsChannel;
-      // if(ttsChannel && server.dataValues.id == '1215573434159996948') {
-      // if(ttsChannel && server.dataValues.id == '1119640137580675103') {
-      if (ttsChannel) {
-        this.client.channels
-          .fetch(ttsChannel)
-          .then((channel) => {
+    try {
+      await Servers.sync();
+      const servers: DATA[] = await Servers.findAll();
+      logger.info(`📢 Sending notice to ${servers.length} servers`);
+      
+      for (const server of servers) {
+        const ttsChannel = server.dataValues.ttsChannel;
+        if (ttsChannel) {
+          try {
+            const channel = await this.client.channels.fetch(ttsChannel);
             if (
               channel?.isTextBased() &&
               !(channel instanceof PartialGroupDMChannel)
             ) {
-              try {
-                channel.send({ embeds: [data] });
-              } catch (e) {
-                console.log(e);
-              }
+              await channel.send({ embeds: [data] });
+              logger.debug(`✅ Notice sent to server ${server.dataValues.id}`);
             }
-          })
-          .catch((e) => {
-            console.log(e);
-          });
+          } catch (e) {
+            logger.error(`Failed to send notice to channel ${ttsChannel}:`, e);
+          }
+        }
       }
+    } catch (error) {
+      logger.error("Failed to send notices:", error);
     }
   }
 
   private async status(): Promise<String> {
-    const servers = await Servers.findAll();
-    const users = await Users.findAll();
-    const joinedServers = await JoinedServer.findAll();
+    try {
+      const servers = await Servers.findAll();
+      const users = await Users.findAll();
+      const joinedServers = await JoinedServer.findAll();
+      
+      logger.info(`📊 Generating status report for ${servers.length} servers, ${users.length} users`);
 
-    const result = async () => {
-      const serverData = await Promise.all(
-        servers.map(async (server) => {
-          try {
-            const serverInstance = await this.client.guilds.fetch(
-              server.dataValues.id
-            );
-            return { id: server.dataValues.id, name: serverInstance.name };
-          } catch (error) {
-            return { id: server.dataValues.id, name: "알 수 없음" };
-          }
-        })
-      );
+      const result = async () => {
+        const serverData = await Promise.all(
+          servers.map(async (server) => {
+            try {
+              const serverInstance = await this.client.guilds.fetch(
+                server.dataValues.id
+              );
+              return { id: server.dataValues.id, name: serverInstance.name };
+            } catch (error) {
+              logger.warn(`Failed to fetch server ${server.dataValues.id}:`, error);
+              return { id: server.dataValues.id, name: "알 수 없음" };
+            }
+          })
+        );
 
       const userData = await Promise.all(
         users.map(async (user) => {
@@ -152,6 +155,10 @@ export default class HttpServer {
     const publicUrl = `${JUHEE_URL}:8080/status/${filename}`;
 
     return publicUrl;
+    } catch (error) {
+      logger.error("Failed to generate status report:", error);
+      return "Error generating status report";
+    }
   }
 
   private requestHandler = (
@@ -257,14 +264,26 @@ export default class HttpServer {
   }
 
   start() {
-    this.server.listen(8080, () => {
-      console.log("Server is running on 8080 port");
-    });
+    try {
+      this.server.listen(8080, () => {
+        logger.httpServerStart(8080);
+      });
+      
+      this.server.on('error', (error) => {
+        logger.httpError(error);
+      });
+    } catch (error) {
+      logger.httpError(error);
+    }
   }
 
   stop() {
-    this.server.close(() => {
-      console.log("Server is closed");
-    });
+    try {
+      this.server.close(() => {
+        logger.httpServerClose();
+      });
+    } catch (error) {
+      logger.error("Failed to close HTTP server:", error);
+    }
   }
 }

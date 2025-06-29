@@ -1,7 +1,7 @@
 
 // DB 객체관계 정의 코드
 
-import { Sequelize, DataTypes } from 'sequelize';
+import { Sequelize } from 'sequelize';
 
 const sequelize = new Sequelize('database', 'username', 'password', {
 	host: 'localhost',
@@ -14,9 +14,9 @@ import module_Users from './models/User.js';
 import module_Servers from './models/Server.js';
 import module_JoinedServer from './models/JoinedServer.js';
 
-const Users = module_Users(sequelize, DataTypes);
-const Servers = module_Servers(sequelize, DataTypes);
-const JoinedServer = module_JoinedServer(sequelize, DataTypes);
+const Users = module_Users(sequelize);
+const Servers = module_Servers(sequelize);
+const JoinedServer = module_JoinedServer(sequelize);
 
 // 서버는 여러 유저에게 속해있다.
 Servers.belongsToMany(Users, { through: JoinedServer, foreignKey: 'server_id', sourceKey: 'id', onDelete: 'CASCADE' });

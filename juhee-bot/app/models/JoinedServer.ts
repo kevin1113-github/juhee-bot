@@ -1,6 +1,6 @@
-import { Sequelize } from "sequelize";
+import { Sequelize, DataTypes } from "sequelize";
 
-export default (sequelize: Sequelize, DataTypes: any) => {
+export default (sequelize: Sequelize) => {
 	return sequelize.define('joined_server', {
 		server_id: {
 			type: DataTypes.STRING,
