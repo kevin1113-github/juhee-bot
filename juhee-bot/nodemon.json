@@ -1,0 +1,6 @@
+{
+  "restartable": "rs",
+  "events": {
+    "crash": "nodemon --delay 500ms"
+  }
+}
