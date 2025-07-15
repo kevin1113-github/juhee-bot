@@ -495,39 +495,39 @@ client.on(Events.MessageCreate, async (message) => {
       //     );
       //   }
       // } else {
-        // 기존 순차 재생 모드
-        // logger.debug("🔄 Using sequential playback mode");
+      // 기존 순차 재생 모드
+      // logger.debug("🔄 Using sequential playback mode");
 
-        if (
-          guildData.audioPlayer &&
-          guildData.audioPlayer.state.status == AudioPlayerStatus.Playing
-        ) {
-          await guildData.action.reply("이미 tts가 재생중입니다.");
-          return;
-        }
+      if (
+        guildData.audioPlayer &&
+        guildData.audioPlayer.state.status == AudioPlayerStatus.Playing
+      ) {
+        await guildData.action.reply("이미 tts가 재생중입니다.");
+        return;
+      }
 
-        if (!guildData.audioPlayer) {
-          guildData.audioPlayer = createNewAudioPlayer();
-        }
+      if (!guildData.audioPlayer) {
+        guildData.audioPlayer = createNewAudioPlayer();
+      }
 
-        if (!getVoiceConnection(message.guildId)) {
-          await guildData.action.joinVoiceChannel(guildData.audioPlayer);
-        }
+      if (!getVoiceConnection(message.guildId)) {
+        await guildData.action.joinVoiceChannel(guildData.audioPlayer);
+      }
 
-        try {
-          await msTTS(
-            parseMessage(message.content),
-            (stream: PassThrough) => {
-              const resource = createNewOggOpusAudioResource(stream);
-              guildData.audioPlayer?.play(resource);
-            },
-            user.dataValues.ttsVoice,
-            user.dataValues.speed
-          );
-        } catch (e) {
-          logger.error("TTS generation failed:", e);
-          await guildData.action.reply("TTS 생성 중 오류가 발생했습니다.");
-        }
+      try {
+        await msTTS(
+          parseMessage(message.content),
+          (stream: PassThrough) => {
+            const resource = createNewOggOpusAudioResource(stream);
+            guildData.audioPlayer?.play(resource);
+          },
+          user.dataValues.ttsVoice,
+          user.dataValues.speed
+        );
+      } catch (e) {
+        logger.error("TTS generation failed:", e);
+        await guildData.action.reply("TTS 생성 중 오류가 발생했습니다.");
+      }
       // }
 
       if (guildData.timeOut) {
@@ -645,6 +645,18 @@ function parseMessage(messageContent: string): string {
   messageContent = messageContent.replace(wisperReg, " ");
   messageContent = messageContent.replace(lolReg, " 크크크 ");
   messageContent = messageContent.replace(dotReg, " ");
+
+  const gtReg = /[>]/gi;
+  const ltReg = /[<]/gi;
+  const ampReg = /[&]/gi;
+  const quoteReg = /["]/gi;
+  const aposReg = /[']/gi;
+
+  messageContent = messageContent.replace(gtReg, "&gt;");
+  messageContent = messageContent.replace(ltReg, "&lt;");
+  messageContent = messageContent.replace(ampReg, "&amp;");
+  messageContent = messageContent.replace(quoteReg, "&quot;");
+  messageContent = messageContent.replace(aposReg, "&apos;");
 
   return messageContent;
 }
