@@ -636,14 +636,15 @@ function parseMessage(messageContent: string): string {
   const mentionReg = /<@([0-9]{3,})>/gi;
   const roleReg = /<@&([0-9]{3,})>/gi;
   const channelReg = /<#([0-9]{3,})>/gi;
-  const emojiReg = /\:[^\:]+\:/gi;
+  const emojiReg = /<\:[^\:]+\:([0-9]{3,})>/gi;
   const urlReg =
     /^(file|gopher|news|nntp|telnet|https?|ftps?|sftp):\/\/([a-z0-9-]+\.)+[a-z0-9]{2,4}.*$/gi;
-  messageContent = messageContent.replace(mentionReg, " 멘션 ");
-  messageContent = messageContent.replace(roleReg, " 역할 ");
-  messageContent = messageContent.replace(channelReg, " 채널 ");
-  messageContent = messageContent.replace(emojiReg, " 이모지 ");
-  messageContent = messageContent.replace(urlReg, " 링크 ");
+  messageContent = messageContent
+    .replace(mentionReg, " 멘션 ")
+    .replace(roleReg, " 역할 ")
+    .replace(channelReg, " 채널 ")
+    .replace(emojiReg, " 이모지 ")
+    .replace(urlReg, " 링크 ");
 
   const wisperReg = /\([^)]+\)/gi;
   const specialCharactersReg = /[\(\)\.\>\<\&\"\'\#\@\:]/gi;
