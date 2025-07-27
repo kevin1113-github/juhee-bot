@@ -4,6 +4,8 @@
 
 <img src="./juhee-profile.png" width="30%" />
 
+### [주희봇 커뮤니티 서버 참가하기](https://discord.gg/bbVVH69TTY)
+
 주희봇은 [discord.js](https://discord.js.org) 라이브러리를 활용하여 제작 되었습니다.
 
 Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 내에서 읽어주는 기능을 수행합니다.
