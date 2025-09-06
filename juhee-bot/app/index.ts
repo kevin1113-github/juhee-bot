@@ -826,7 +826,7 @@ function createNewOggOpusAudioResource(
 ) {
   const resource = createAudioResource(stream, {
     inputType: inputType ?? StreamType.OggOpus,
-    silencePaddingFrames: 0,
+    // silencePaddingFrames: 0,
   });
   return resource;
 }

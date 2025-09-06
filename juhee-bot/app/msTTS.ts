@@ -1,70 +1,87 @@
-import sdk from 'microsoft-cognitiveservices-speech-sdk';
-import { __dirname } from './const.js';
-import { PassThrough } from 'stream';
-import { TextAnalyticsClient, AzureKeyCredential } from "@azure/ai-text-analytics";
+import sdk from "microsoft-cognitiveservices-speech-sdk";
+import { __dirname } from "./const.js";
+import { PassThrough } from "stream";
+import {
+  TextAnalyticsClient,
+  AzureKeyCredential,
+} from "@azure/ai-text-analytics";
 
 import dotenv from "dotenv";
-import { logger } from './logger.js';
+import { logger } from "./logger.js";
 dotenv.config();
-const SPEECH_KEY: string = process.env.SPEECH_KEY ?? '';
-const SPEECH_REGION: string = process.env.SPEECH_REGION ?? '';
-const DEFAULT_VOICE: string = 'SeoHyeonNeural';
-const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? '';
-const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? '';
-const client = new TextAnalyticsClient(LANGUAGE_ENDPOINT, new AzureKeyCredential(LANGUAGE_KEY));
+const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
+const SPEECH_REGION: string = process.env.SPEECH_REGION ?? "";
+const DEFAULT_VOICE: string = "SeoHyeonNeural";
+const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
+const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? "";
+const client = new TextAnalyticsClient(
+  LANGUAGE_ENDPOINT,
+  new AzureKeyCredential(LANGUAGE_KEY)
+);
 
-async function msTTS(textData: string, callback: Function, voiceName: string = DEFAULT_VOICE, speed: number = 30) {
+async function msTTS(
+  textData: string,
+  callback: Function,
+  voiceName: string = DEFAULT_VOICE,
+  speed: number = 30
+) {
   try {
     if (!SPEECH_KEY || !SPEECH_REGION) {
       logger.error("Speech API credentials not configured");
       return;
     }
 
-    const speechConfig = sdk.SpeechConfig.fromSubscription(SPEECH_KEY, SPEECH_REGION);
-    
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      SPEECH_KEY,
+      SPEECH_REGION
+    );
+
     let language: string;
     let voice: string;
     // const detectedLanguage = await recognizeLanguage(textData);
     const detectedLanguage = quickLanguageDetect(textData);
-    
+
     switch (detectedLanguage) {
-      case 'ko':
-        language = 'ko-KR';
-        voice = language + '-' + (voiceName ?? DEFAULT_VOICE);
+      case "ko":
+        language = "ko-KR";
+        voice = language + "-" + (voiceName ?? DEFAULT_VOICE);
         break;
-      case 'ja':
-        language = 'ja-JP';
-        voice = language + '-AoiNeural';
+      case "ja":
+        language = "ja-JP";
+        voice = language + "-AoiNeural";
         break;
-      case 'en':
-        language = 'en-US';
-        voice = language + '-AnaNeural';
+      case "en":
+        language = "en-US";
+        voice = language + "-AnaNeural";
         break;
       default:
-        language = 'ko-KR';
-        voice = language + '-' + (voiceName ?? DEFAULT_VOICE);
+        language = "ko-KR";
+        voice = language + "-" + (voiceName ?? DEFAULT_VOICE);
         break;
     }
-    
-    logger.debug(`🗣️  TTS: ${textData.substring(0, 50)}... (${language}, ${voice})`);
 
-  // speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff48Khz16BitMonoPcm;
-  speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Ogg16Khz16BitMonoOpus;
-  speechConfig.speechSynthesisLanguage = language;
-  speechConfig.speechSynthesisVoiceName = voice;
+    logger.debug(
+      `🗣️  TTS: ${textData.substring(0, 50)}... (${language}, ${voice})`
+    );
 
-  const speechSynthesizer = new sdk.SpeechSynthesizer(speechConfig);
-  const ssml =
-  `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${language}">
+    // speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff48Khz16BitMonoPcm;
+    speechConfig.speechSynthesisOutputFormat =
+      sdk.SpeechSynthesisOutputFormat.Ogg24Khz16BitMonoOpus;
+    speechConfig.speechSynthesisLanguage = language;
+    speechConfig.speechSynthesisVoiceName = voice;
+
+    const speechSynthesizer = new sdk.SpeechSynthesizer(speechConfig);
+    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${language}">
     <voice name="${voice}">
-      <prosody rate="+${speed??30}%">${textData}</prosody>
+      <prosody rate="+${speed ?? 30}%">${textData}</prosody>
     </voice>
   </speak>`;
 
-  // console.log(ssml);
+    // console.log(ssml);
 
     speechSynthesizer.speakSsmlAsync(
-      ssml, result => {
+      ssml,
+      (result) => {
         try {
           speechSynthesizer.close();
 
@@ -75,7 +92,7 @@ async function msTTS(textData: string, callback: Function, voiceName: string = D
 
           const { audioData } = result;
           if (!audioData) {
-            logger.warn('TTS audioData is empty');
+            logger.warn("TTS audioData is empty");
             return;
           }
 
@@ -88,10 +105,11 @@ async function msTTS(textData: string, callback: Function, voiceName: string = D
           logger.error("Error in TTS callback:", callbackError);
         }
       },
-      error => {
+      (error) => {
         logger.error("TTS synthesis failed:", error);
         speechSynthesizer.close();
-    });
+      }
+    );
   } catch (error) {
     logger.error("Failed to initialize TTS:", error);
   }
@@ -122,11 +140,11 @@ function quickLanguageDetect(text: string): string {
   const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/;
   const japaneseRegex = /[ひらがなカタカナ]/;
   const englishRegex = /^[a-zA-Z\s\d\.,!?]+$/;
-  
-  if (koreanRegex.test(text)) return 'ko';
-  if (japaneseRegex.test(text)) return 'ja';
-  if (englishRegex.test(text)) return 'en';
-  return 'ko'; // 기본값
+
+  if (koreanRegex.test(text)) return "ko";
+  if (japaneseRegex.test(text)) return "ja";
+  if (englishRegex.test(text)) return "en";
+  return "ko"; // 기본값
 }
 
 export default msTTS;

@@ -31,13 +31,14 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .addChoices(
           { name: '선히(여)', value: 'SunHiNeural' },
           { name: '인준(남)', value: 'InJoonNeural' },
+          { name: '현수(남)', value: 'HyunsuNeural' },
           { name: '봉진(남)', value: 'BongJinNeural' },
           { name: '국민(남)', value: 'GookMinNeural' },
-          // { name: '현수(남)', value: 'HyunsuNeural' },
           { name: '지민(여)', value: 'JiMinNeural' },
           { name: '서현(여)', value: 'SeoHyeonNeural' },
           { name: '순복(여)', value: 'SoonBokNeural' },
           { name: '유진(여)', value: 'YuJinNeural' },
+          { name: '현수(남) (다국어 지원)', value: 'HyunsuMultilingualNeural' },
         )
         .setRequired(true)),
 
