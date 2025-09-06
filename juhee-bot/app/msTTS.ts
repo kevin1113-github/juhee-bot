@@ -39,7 +39,7 @@ async function msTTS(
     let language: string;
     let voice: string;
     // const detectedLanguage = await recognizeLanguage(textData);
-    const detectedLanguage = quickLanguageDetect(textData);
+    const detectedLanguage = (voiceName == 'HyunsuMultilingualNeural') ? 'ko' : quickLanguageDetect(textData);
 
     switch (detectedLanguage) {
       case "ko":
