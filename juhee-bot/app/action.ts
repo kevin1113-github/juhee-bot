@@ -1,5 +1,6 @@
 import {
   ChatInputCommandInteraction,
+  DiscordAPIError,
   GuildMember,
   Interaction,
   Message,
@@ -126,7 +127,16 @@ export default class Action {
       }
       if (server.dataValues.isMuted) return;
 
-      await this.interaction.channel.send(msg);
+      try {
+        await this.interaction.channel.send(msg);
+      } catch (err) {
+        // If bot lacks SEND_MESSAGES in the channel (50013), log and skip
+        if (err instanceof DiscordAPIError && err.code === 50013) {
+          logger.error("Missing permission to send message in channel", err);
+          return;
+        }
+        throw err;
+      }
     } catch (error) {
       logger.error("Failed to send message:", error);
     }
@@ -154,16 +164,39 @@ export default class Action {
       if (this.isReplied) {
         if (server.dataValues.isMuted) return;
         await this.send(msg);
-      } else {
+        return;
+      }
+
+      // first reply attempt
+      try {
         if (this.interaction instanceof ChatInputCommandInteraction) {
           await this.interaction.reply({
             content: msg,
-            flags: server.dataValues.isMuted? MessageFlags.Ephemeral : undefined,
+            flags: server.dataValues.isMuted ? MessageFlags.Ephemeral : undefined,
           });
         } else if (!server.dataValues.isMuted) {
           await this.interaction.reply(msg);
         }
         this.isReplied = true;
+      } catch (err) {
+        // If Missing Permissions when replying (for example replying with message reference),
+        // try a safer fallback: send directly to the channel (if available and allowed).
+        if (err instanceof DiscordAPIError && err.code === 50013) {
+          logger.error("Missing permission to reply to interaction, attempting fallback send", err);
+          // Fallback to channel send without message reference / ephemeral flags
+          try {
+            if (this.interaction.channel && !(this.interaction.channel instanceof PartialGroupDMChannel)) {
+              await this.interaction.channel.send(msg);
+              this.isReplied = true;
+            } else {
+              logger.error("No suitable channel to fallback-send reply");
+            }
+          } catch (sendErr) {
+            logger.error("Fallback send also failed:", sendErr);
+          }
+        } else {
+          throw err;
+        }
       }
     } catch (error) {
       logger.error("Failed to reply to interaction:", error);
