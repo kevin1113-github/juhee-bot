@@ -12,7 +12,7 @@ Microsoft Azure TTS 엔진을 활용하여 디스코드 메세지를 통화방 �
 
 ## 사용법
 
-### [서버에 주희봇 초대하기](https://discord.com/api/oauth2/authorize?client_id=813805094352715806&permissions=8&scope=bot)
+### [서버에 주희봇 초대하기](https://discord.com/api/oauth2/authorize?client_id=813805094352715806)
 
 위 링크를 통해 디스코드 서버에 주희봇을 추가 할 수 있습니다.
 
