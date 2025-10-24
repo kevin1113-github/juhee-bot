@@ -12,6 +12,7 @@ import {
   AudioPlayer,
   DiscordGatewayAdapterCreator,
   VoiceConnection,
+  VoiceConnectionStatus,
   getVoiceConnection,
   joinVoiceChannel,
 } from "@discordjs/voice";
@@ -90,21 +91,137 @@ export default class Action {
         
         connection.subscribe(audioPlayer);
         
-        // Handle connection events
-        connection.on('error', (error) => {
-          logger.reconnectionFailed(error);
-        });
+        // 음성 연결 상태 관리 및 재연결 로직
+        this.setupVoiceConnectionHandlers(connection, voiceChannel, audioPlayer);
         
         await this.reply("음성 채널 접속 성공");
         logger.info(`🔊 Joined voice channel "${voiceChannel.name}" in guild ${this.interaction.guildId}`);
         return;
       } else {
+        // 기존 연결이 있지만 핸들러가 설정되지 않았을 수도 있으므로 설정
+        this.setupVoiceConnectionHandlers(voiceConnection, voiceChannel, audioPlayer);
         await this.reply("이미 접속 되어 있습니다");
         return;
       }
     } catch (error) {
       logger.error("Failed to join voice channel:", error);
       await this.reply("음성채널 접속 중 오류가 발생했습니다.");
+    }
+  }
+
+  private setupVoiceConnectionHandlers(
+    connection: VoiceConnection, 
+    voiceChannel: VoiceBasedChannel, 
+    audioPlayer: AudioPlayer,
+    retryCount: number = 0
+  ) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 5000; // 5초
+    
+    // 연결 상태 변화 처리
+    connection.on(VoiceConnectionStatus.Disconnected, async (oldState, newState) => {
+      try {
+        logger.warn(`🔌 Voice connection disconnected in guild ${voiceChannel.guild.id}`);
+        
+        // 재연결 시도 (최대 5초 대기)
+        await Promise.race([
+          connection.configureNetworking(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('ETIMEDOUT')), 5000)
+          )
+        ]);
+        
+        logger.info(`🔌 Voice connection restored in guild ${voiceChannel.guild.id}`);
+      } catch (error) {
+        logger.error(`🔌 Voice connection lost, attempting reconnection... (${retryCount + 1}/${MAX_RETRIES})`);
+        
+        if (retryCount < MAX_RETRIES) {
+          // 재연결 시도
+          setTimeout(() => {
+            this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
+          }, RETRY_DELAY);
+        } else {
+          logger.reconnectionFailed(error);
+          connection.destroy();
+        }
+      }
+    });
+
+    // 준비 상태
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      logger.info(`🔌 Voice connection ready in guild ${voiceChannel.guild.id}`);
+    });
+
+    // 일반적인 에러 처리
+    connection.on('error', (error) => {
+      logger.error(`🔌 Voice connection error in guild ${voiceChannel.guild.id}:`, error);
+      
+      // 타임아웃 에러의 경우 재연결 시도
+      if (error.message?.includes('ETIMEDOUT') && retryCount < MAX_RETRIES) {
+        logger.warn(`🔌 Timeout error, attempting reconnection... (${retryCount + 1}/${MAX_RETRIES})`);
+        setTimeout(() => {
+          this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
+        }, RETRY_DELAY);
+      } else {
+        logger.reconnectionFailed(error);
+      }
+    });
+
+    // 네트워크 상태 변화 감지
+    connection.on('stateChange', (oldState, newState) => {
+      logger.debug(`🔌 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
+    });
+  }
+
+  private async reconnectVoiceChannel(
+    voiceChannel: VoiceBasedChannel, 
+    audioPlayer: AudioPlayer, 
+    retryCount: number = 0
+  ) {
+    try {
+      logger.info(`🔌 Attempting to reconnect to voice channel "${voiceChannel.name}" (attempt ${retryCount})`);
+      
+      // 기존 연결 정리
+      const existingConnection = getVoiceConnection(voiceChannel.guild.id);
+      if (existingConnection) {
+        existingConnection.destroy();
+      }
+
+      // 새로운 연결 생성 (타임아웃 처리)
+      const connection = await Promise.race([
+        new Promise<VoiceConnection>((resolve) => {
+          const conn = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator as DiscordGatewayAdapterCreator,
+            selfDeaf: true,
+            selfMute: false,
+          });
+          
+          // 연결이 준비되면 resolve
+          conn.on(VoiceConnectionStatus.Ready, () => resolve(conn));
+          
+          // 연결 실패 시에도 일단 반환 (핸들러에서 처리)
+          setTimeout(() => resolve(conn), 2000);
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Connection timeout')), 10000)
+        )
+      ]);
+      
+      connection.subscribe(audioPlayer);
+      this.setupVoiceConnectionHandlers(connection, voiceChannel, audioPlayer, retryCount);
+      
+      logger.info(`🔌 Successfully reconnected to voice channel "${voiceChannel.name}"`);
+    } catch (error) {
+      logger.error(`🔌 Failed to reconnect to voice channel (attempt ${retryCount}):`, error);
+      
+      // 최대 재시도 횟수에 도달하지 않았다면 다시 시도
+      if (retryCount < 3) {
+        setTimeout(() => {
+          this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
+        }, 5000 * retryCount); // 점진적으로 대기 시간 증가
+      }
     }
   }
 

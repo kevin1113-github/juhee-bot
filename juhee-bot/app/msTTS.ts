@@ -23,11 +23,21 @@ async function msTTS(
   textData: string,
   callback: Function,
   voiceName: string = DEFAULT_VOICE,
-  speed: number = 30
+  speed: number = 30,
+  retryCount: number = 0
 ) {
+  const MAX_RETRIES = 2;
+  
   try {
     if (!SPEECH_KEY || !SPEECH_REGION) {
       logger.error("Speech API credentials not configured");
+      if (typeof callback === 'function') {
+        try {
+          callback(null);
+        } catch (callbackError) {
+          logger.error("Error calling callback for missing credentials:", callbackError);
+        }
+      }
       return;
     }
 
@@ -87,31 +97,114 @@ async function msTTS(
 
           if (result.errorDetails) {
             logger.error("TTS synthesis error:", result.errorDetails);
+            
+            // websocket 에러나 내부 서버 에러의 경우 재시도
+            const errorMessage = result.errorDetails?.toString() || '';
+            const isRetriableError = errorMessage.includes('websocket error') || 
+                                    errorMessage.includes('Internal server error') ||
+                                    errorMessage.includes('1011');
+            
+            if (isRetriableError && retryCount < MAX_RETRIES) {
+              logger.warn(`TTS synthesis error with retriable error, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+              setTimeout(() => {
+                msTTS(textData, callback, voiceName, speed, retryCount + 1);
+              }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
+            } else {
+              // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
+              if (typeof callback === 'function') {
+                try {
+                  callback(null); // null을 전달하여 오디오가 없음을 알림
+                } catch (callbackError) {
+                  logger.error("Error calling callback after TTS error:", callbackError);
+                }
+              }
+            }
             return;
           }
 
           const { audioData } = result;
           if (!audioData) {
             logger.warn("TTS audioData is empty");
+            // 오디오 데이터가 없어도 콜백을 호출
+            if (typeof callback === 'function') {
+              try {
+                callback(null);
+              } catch (callbackError) {
+                logger.error("Error calling callback for empty audioData:", callbackError);
+              }
+            }
             return;
           }
 
           // convert arrayBuffer to stream
           const bufferStream = new PassThrough();
           bufferStream.end(Buffer.from(audioData));
-          callback(bufferStream);
-          logger.debug("✅ TTS synthesis completed successfully");
+          if (typeof callback === 'function') {
+            try {
+              callback(bufferStream);
+              logger.debug("✅ TTS synthesis completed successfully");
+            } catch (callbackError) {
+              logger.error("Error calling callback with audio stream:", callbackError);
+            }
+          }
         } catch (callbackError) {
           logger.error("Error in TTS callback:", callbackError);
+          // 콜백 에러가 발생해도 안전하게 처리
+          try {
+            if (typeof callback === 'function') {
+              callback(null);
+            }
+          } catch (safeCallbackError) {
+            logger.error("Error in safe callback call:", safeCallbackError);
+          }
         }
       },
       (error) => {
         logger.error("TTS synthesis failed:", error);
         speechSynthesizer.close();
+        
+        // websocket 에러나 내부 서버 에러의 경우 재시도
+        const errorMessage = error?.toString() || '';
+        const isRetriableError = errorMessage.includes('websocket error') || 
+                                errorMessage.includes('Internal server error') ||
+                                errorMessage.includes('1011');
+        
+        if (isRetriableError && retryCount < MAX_RETRIES) {
+          logger.warn(`TTS synthesis failed with retriable error, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          setTimeout(() => {
+            msTTS(textData, callback, voiceName, speed, retryCount + 1);
+          }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
+        } else {
+          // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
+          if (typeof callback === 'function') {
+            try {
+              callback(null);
+            } catch (callbackError) {
+              logger.error("Error calling callback after synthesis failure:", callbackError);
+            }
+          }
+        }
       }
     );
   } catch (error) {
     logger.error("Failed to initialize TTS:", error);
+    
+    // 재시도 로직
+    if (retryCount < MAX_RETRIES) {
+      logger.warn(`TTS failed, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+      setTimeout(() => {
+        msTTS(textData, callback, voiceName, speed, retryCount + 1);
+      }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
+    } else {
+      logger.error("TTS failed after all retries, calling callback with null");
+      if (typeof callback === 'function') {
+        try {
+          callback(null);
+        } catch (callbackError) {
+          logger.error("Error calling callback after final TTS failure:", callbackError);
+        }
+      }
+    }
   }
 }
 
