@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Microsoft Azure Cognitive Services TTS 연동
+ * @description Azure Speech API를 사용한 텍스트 음성 변환
+ * @author kevin1113dev
+ */
+
 import sdk from "microsoft-cognitiveservices-speech-sdk";
 import { __dirname } from "./const.js";
 import { PassThrough } from "stream";
@@ -8,17 +14,45 @@ import {
 
 import dotenv from "dotenv";
 import { logger } from "./logger.js";
+
 dotenv.config();
+
+/** Azure Speech API 키 */
 const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
+
+/** Azure Speech API 리전 */
 const SPEECH_REGION: string = process.env.SPEECH_REGION ?? "";
+
+/** 기본 TTS 음성 */
 const DEFAULT_VOICE: string = "SeoHyeonNeural";
+
+/** Azure Language API 키 (언어 감지용, 현재 미사용) */
 const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
+
+/** Azure Language API 엔드포인트 (현재 미사용) */
 const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? "";
+
+/** 언어 분석 클라이언트 (현재 미사용) */
 const client = new TextAnalyticsClient(
   LANGUAGE_ENDPOINT,
   new AzureKeyCredential(LANGUAGE_KEY)
 );
 
+/**
+ * Microsoft Azure TTS를 사용하여 텍스트를 음성으로 변환
+ * 
+ * @param textData - 변환할 텍스트
+ * @param callback - 오디오 스트림을 받을 콜백 함수
+ * @param voiceName - 사용할 음성 이름 (기본값: SeoHyeonNeural)
+ * @param speed - 속도 조절 (0-100, 기본값: 30)
+ * @param retryCount - 재시도 횟수 (내부 사용, 기본값: 0)
+ * 
+ * @remarks
+ * - 언어 자동 감지 (한국어, 일본어, 영어)
+ * - 오류 발생 시 최대 2번 재시도
+ * - Ogg Opus 형식으로 출력
+ * - 재시도 간격: 1초, 2초 (점진적 증가)
+ */
 async function msTTS(
   textData: string,
   callback: Function,
@@ -96,7 +130,7 @@ async function msTTS(
           speechSynthesizer.close();
 
           if (result.errorDetails) {
-            logger.error("TTS synthesis error:", result.errorDetails);
+            logger.error("❌ TTS 합성 오류:", result.errorDetails);
             
             // websocket 에러나 내부 서버 에러의 경우 재시도
             const errorMessage = result.errorDetails?.toString() || '';
@@ -105,17 +139,22 @@ async function msTTS(
                                     errorMessage.includes('1011');
             
             if (isRetriableError && retryCount < MAX_RETRIES) {
-              logger.warn(`TTS synthesis error with retriable error, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+              logger.warn(
+                `⚠️ TTS 합성 오류, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..." | 음성: ${voiceName}`
+              );
               setTimeout(() => {
                 msTTS(textData, callback, voiceName, speed, retryCount + 1);
               }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
             } else {
               // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
+              logger.error(
+                `❌ TTS 합성 재시도 한계 도달 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
+              );
               if (typeof callback === 'function') {
                 try {
                   callback(null); // null을 전달하여 오디오가 없음을 알림
                 } catch (callbackError) {
-                  logger.error("Error calling callback after TTS error:", callbackError);
+                  logger.error("❌ TTS 오류 콜백 실패:", callbackError);
                 }
               }
             }
@@ -124,13 +163,13 @@ async function msTTS(
 
           const { audioData } = result;
           if (!audioData) {
-            logger.warn("TTS audioData is empty");
+            logger.warn(`⚠️ TTS audioData 비어있음 | 텍스트: "${textData.substring(0, 30)}..."`);
             // 오디오 데이터가 없어도 콜백을 호출
             if (typeof callback === 'function') {
               try {
                 callback(null);
               } catch (callbackError) {
-                logger.error("Error calling callback for empty audioData:", callbackError);
+                logger.error("❌ 빈 audioData 콜백 실패:", callbackError);
               }
             }
             return;
@@ -142,25 +181,27 @@ async function msTTS(
           if (typeof callback === 'function') {
             try {
               callback(bufferStream);
-              logger.debug("✅ TTS synthesis completed successfully");
+              logger.debug(
+                `✅ TTS 합성 완료: "${textData.substring(0, 30)}..." | 음성: ${voiceName}, 크기: ${audioData.byteLength} bytes`
+              );
             } catch (callbackError) {
-              logger.error("Error calling callback with audio stream:", callbackError);
+              logger.error("❌ TTS 스트림 콜백 실패:", callbackError);
             }
           }
         } catch (callbackError) {
-          logger.error("Error in TTS callback:", callbackError);
+          logger.error("❌ TTS 콜백 처리 오류:", callbackError);
           // 콜백 에러가 발생해도 안전하게 처리
           try {
             if (typeof callback === 'function') {
               callback(null);
             }
           } catch (safeCallbackError) {
-            logger.error("Error in safe callback call:", safeCallbackError);
+            logger.error("❌ 안전 콜백 처리 오류:", safeCallbackError);
           }
         }
       },
       (error) => {
-        logger.error("TTS synthesis failed:", error);
+        logger.error("❌ TTS 합성 실패:", error);
         speechSynthesizer.close();
         
         // websocket 에러나 내부 서버 에러의 경우 재시도
@@ -170,44 +211,57 @@ async function msTTS(
                                 errorMessage.includes('1011');
         
         if (isRetriableError && retryCount < MAX_RETRIES) {
-          logger.warn(`TTS synthesis failed with retriable error, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          logger.warn(
+            `⚠️ TTS 합성 실패, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
+          );
           setTimeout(() => {
             msTTS(textData, callback, voiceName, speed, retryCount + 1);
           }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
         } else {
           // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
+          logger.error(
+            `❌ TTS 합성 재시도 한계 도달 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
+          );
           if (typeof callback === 'function') {
             try {
               callback(null);
             } catch (callbackError) {
-              logger.error("Error calling callback after synthesis failure:", callbackError);
+              logger.error("❌ 합성 실패 콜백 오류:", callbackError);
             }
           }
         }
       }
     );
   } catch (error) {
-    logger.error("Failed to initialize TTS:", error);
+    logger.error("❌ TTS 초기화 실패:", error);
     
     // 재시도 로직
     if (retryCount < MAX_RETRIES) {
-      logger.warn(`TTS failed, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+      logger.warn(
+        `⚠️ TTS 초기화 실패, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
+      );
       setTimeout(() => {
         msTTS(textData, callback, voiceName, speed, retryCount + 1);
       }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
     } else {
-      logger.error("TTS failed after all retries, calling callback with null");
+      logger.error(
+        `❌ TTS 모든 재시도 실패 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
+      );
       if (typeof callback === 'function') {
         try {
           callback(null);
         } catch (callbackError) {
-          logger.error("Error calling callback after final TTS failure:", callbackError);
+          logger.error("❌ 최종 실패 콜백 오류:", callbackError);
         }
       }
     }
   }
 }
 
+/**
+ * Azure Language API를 사용한 언어 인식 함수 (현재 비활성화)
+ * API 호출 비용 절감을 위해 로컬 언어 감지 사용
+ */
 // async function recognizeLanguage(text: string): Promise<string> {
 //   try {
 //     if (recognizeOption && LANGUAGE_KEY && LANGUAGE_ENDPOINT) {
@@ -228,7 +282,19 @@ async function msTTS(
 //   }
 // }
 
-// 간단한 로컬 언어 감지로 API 호출 줄이기
+/**
+ * 빠른 로컬 언어 감지
+ * API 호출 없이 정규식으로 언어 판별
+ * 
+ * @param text - 감지할 텍스트
+ * @returns 언어 코드 ('ko', 'ja', 'en')
+ * 
+ * @remarks
+ * - 한글 문자 포함 시: 'ko'
+ * - 일본어 문자 포함 시: 'ja'
+ * - 영어 문자만 포함 시: 'en'
+ * - 그 외: 'ko' (기본값)
+ */
 function quickLanguageDetect(text: string): string {
   const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/;
   const japaneseRegex = /[ひらがなカタカナ]/;

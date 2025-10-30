@@ -1,6 +1,16 @@
+/**
+ * @fileoverview 주희봇 Discord TTS 봇 메인 파일
+ * @description Discord 서버에서 텍스트를 음성으로 변환하여 음성 채널에서 재생하는 봇
+ * @author kevin1113dev
+ * @version 1.0.0
+ */
+
 import dotenv from "dotenv";
 dotenv.config();
+
+/** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
+/** Discord 애플리케이션 클라이언트 ID */
 const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
 
 import { __dirname } from "./const.js";
@@ -28,7 +38,6 @@ import {
 } from "@discordjs/voice";
 import Stream, { PassThrough } from "stream";
 
-// custom import
 import msTTS from "./msTTS.js";
 import Commands from "./commands.js";
 import { RegisterUser, RegisterUserMsg } from "./dbFunction.js";
@@ -36,39 +45,53 @@ import { JoinedServer, Servers, Users } from "./dbObject.js";
 import Action from "./action.js";
 import { DATA, GuildData } from "./types.js";
 import HttpServer from "./api.js";
-// import { AudioMixer } from "node-audio-mixer";
 
+/** 
+ * 각 서버(길드)의 오디오 플레이어, 액션, 타임아웃을 관리하는 전역 배열
+ * @type {GuildData[]}
+ */
 const guildDataList: GuildData[] = [];
 
-// Global error handlers
+/**
+ * 전역 에러 핸들러
+ * 처리되지 않은 Promise 거부와 예외를 잡아서 로그를 남김
+ */
 process.on("unhandledRejection", (reason, promise) => {
   logger.unhandledRejection(reason);
 });
 
 process.on("uncaughtException", (error) => {
-  logger.error("💥 Uncaught Exception:", error);
+  logger.error("💥 처리되지 않은 예외:", error);
   process.exit(1);
 });
 
-// SIGINT handler for graceful shutdown
+/**
+ * SIGINT 시그널 핸들러 - 정상적인 종료 처리
+ */
 process.on("SIGINT", () => {
-  logger.info("🛑 Received SIGINT, shutting down gracefully...");
+  logger.info("🛑 SIGINT 신호 수신, 정상 종료 중...");
   logger.cleanup();
   process.exit(0);
 });
 
-// Reloading (/) commands.
+/**
+ * Discord 슬래시 커맨드 등록
+ * 봇이 시작될 때 모든 커맨드를 Discord API에 등록
+ */
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 try {
   logger.commandRefresh();
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: Commands });
   logger.commandRefreshSuccess();
 } catch (error) {
-  logger.error("Failed to load application commands:", error);
+  logger.error("슬래시 커맨드 로드 실패:", error);
   process.exit(1);
 }
 
-// When bot is ready.
+/**
+ * Discord 클라이언트 인스턴스 생성
+ * 필요한 Intent(권한)를 설정하여 봇이 서버, 음성 상태, 메시지를 처리할 수 있도록 함
+ */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -77,20 +100,71 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
+
 let httpServer: HttpServer;
+
+/**
+ * 봇이 준비되었을 때 실행되는 이벤트 핸들러
+ * 데이터베이스 초기화, 서버 정리, HTTP 서버 시작 등을 처리
+ */
 client.once(Events.ClientReady, async () => {
   try {
-    // TODO: DB 불러오기
-    logger.info("🔄 Initializing database...");
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    logger.info("🔄 데이터베이스 초기화 중...");
     await Servers.sync({ alter: true }); // 기존 테이블 구조 업데이트
     await Users.sync({ alter: true });
     await JoinedServer.sync({ alter: true });
-    logger.info("✅ Database initialized successfully");
+    logger.info("✅ 데이터베이스 초기화 완료");
 
     const servers = await Servers.findAll();
-    logger.info(`📊 Found ${servers.length} registered servers`);
+    logger.info(`📊 데이터베이스에서 ${servers.length}개 서버 발견`);
 
+    // 현재 봇이 실제로 접속한 서버 목록 가져오기
+    const actualGuilds = client.guilds.cache;
+    logger.info(`🔗 현재 ${actualGuilds.size}개 서버에 접속 중`);
+
+    // DB에 있지만 실제로 접속하지 않은 서버 찾기
+    const serversToRemove: string[] = [];
     for (const server of servers) {
+      const serverId = server.dataValues.id;
+      if (!actualGuilds.has(serverId)) {
+        serversToRemove.push(serverId);
+        logger.warn(`⚠️ 서버 ID ${serverId}가 DB에 있지만 접속되지 않음 - 정리 예정`);
+      }
+    }
+
+    // 접속하지 않은 서버 정리
+    if (serversToRemove.length > 0) {
+      logger.info(`🧹 ${serversToRemove.length}개 연결 해제된 서버를 정리하는 중...`);
+      
+      for (const serverId of serversToRemove) {
+        try {
+          // JoinedServer 테이블에서 해당 서버 관련 데이터 삭제
+          const deletedJoins = await JoinedServer.destroy({
+            where: { server_id: serverId }
+          });
+          
+          // Servers 테이블에서 서버 삭제
+          const deletedServer = await Servers.destroy({
+            where: { id: serverId }
+          });
+          
+          if (deletedServer > 0) {
+            logger.info(`✅ 서버 ID ${serverId} 제거 완료 (${deletedJoins}개 사용자 관계 삭제)`);
+          }
+        } catch (error) {
+          logger.error(`❌ 서버 ID ${serverId} 제거 실패:`, error);
+        }
+      }
+      
+      logger.info(`✅ 데이터베이스 정리 완료 (${serversToRemove.length}개 서버 제거)`);
+    } else {
+      logger.info(`✅ 모든 DB 서버가 현재 접속 중 - 정리 불필요`);
+    }
+
+    // 실제로 접속한 서버만 guildDataList에 추가
+    const remainingServers = await Servers.findAll();
+    for (const server of remainingServers) {
       guildDataList.push({
         guildId: server.dataValues.id,
         audioPlayer: null,
@@ -99,6 +173,21 @@ client.once(Events.ClientReady, async () => {
         timeOut: null,
       });
     }
+    
+    logger.info(`📋 ${guildDataList.length}개 활성 서버를 메모리에 로드 완료`);
+
+    // 최종 통계 로깅
+    const finalServerCount = await Servers.count();
+    const finalUserCount = await Users.count();
+    const finalJoinCount = await JoinedServer.count();
+    
+    logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    logger.info(`📊 데이터베이스 통계:`);
+    logger.info(`   🏢 접속 중인 서버: ${actualGuilds.size}개`);
+    logger.info(`   💾 등록된 서버: ${finalServerCount}개`);
+    logger.info(`   👥 등록된 사용자: ${finalUserCount}명`);
+    logger.info(`   🔗 서버-사용자 관계: ${finalJoinCount}개`);
+    logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     httpServer = new HttpServer(client);
     httpServer.start();
@@ -107,12 +196,26 @@ client.once(Events.ClientReady, async () => {
     // // Clean up old logs
     // logger.cleanupOldLogs();
   } catch (error) {
-    logger.error("Failed to initialize bot:", error);
+    logger.error("봇 초기화 실패:", error);
     process.exit(1);
   }
 });
 
-// When bot received interaction.
+/**
+ * 인터랙션(슬래시 커맨드) 처리 이벤트 핸들러
+ * 사용자가 슬래시 커맨드를 입력했을 때 실행
+ * 
+ * 지원하는 커맨드:
+ * - /들어와: 음성 채널에 참가
+ * - /나가: 음성 채널에서 나감
+ * - /채널설정: TTS 채널 설정
+ * - /채널해제: TTS 채널 해제
+ * - /현재목소리: 현재 설정된 TTS 목소리 확인
+ * - /목소리설정: TTS 목소리 변경
+ * - /속도설정: TTS 속도 변경
+ * - /음소거: 봇 음소거
+ * - /음소거해제: 봇 음소거 해제
+ */
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
@@ -121,9 +224,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // register user
+      // 사용자 등록
       await RegisterUser(interaction);
-      // get nickname
+      
+      // 닉네임 가져오기
       const NICKNAME: string = getNickName(interaction);
 
       // get server data
@@ -161,27 +265,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
+      // 음성 채널 참가 명령
       if (interaction.commandName === "들어와") {
-        // 새로운 오디오 플레이어로 접속
         guildData.audioPlayer = createNewAudioPlayer();
         await guildData.action.joinVoiceChannel(guildData.audioPlayer);
       }
 
+      // 음성 채널 나가기 명령
       if (interaction.commandName === "나가") {
         guildData.audioPlayer = null;
         await guildData.action.exitVoiceChannel();
       }
 
+      // TTS 채널 설정 명령
       if (interaction.commandName === "채널설정") {
+        await guildData.action.deferReply();
+        
         const channelId: string | undefined =
           interaction.options.getChannel("채널")?.id;
         if (!channelId) {
-          await guildData.action.reply(`tts 채널이 설정되지 않았습니다.`);
+          await guildData.action.editReply(`tts 채널이 설정되지 않았습니다.`);
           return;
         }
 
         await server.update({ ttsChannel: channelId });
-        await guildData.action.reply(
+        await guildData.action.editReply(
           `[${
             (
               await interaction.guild?.channels.fetch(channelId)
@@ -190,23 +298,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
       }
 
+      // TTS 채널 해제 명령
       if (interaction.commandName === "채널해제") {
+        await guildData.action.deferReply();
+        
         const channelId = server.dataValues.ttsChannel;
         if (!channelId) {
-          await guildData.action.reply(`tts 채널이 설정되지 않았습니다.`);
+          await guildData.action.editReply(`tts 채널이 설정되지 않았습니다.`);
           return;
         }
 
         await server.update({ ttsChannel: null });
-        await guildData.action.reply(`tts 채널이 해제되었습니다.`);
+        await guildData.action.editReply(`tts 채널이 해제되었습니다.`);
       }
 
+      // 현재 설정된 목소리 확인 명령
       if (interaction.commandName === "현재목소리") {
+        await guildData.action.deferReply();
+        
         const user: DATA | null = await Users.findOne({
           where: { id: interaction.user.id },
         });
         if (!user) {
-          await guildData.action.reply(`유저가 등록되지 않았습니다.`);
+          await guildData.action.editReply(`유저가 등록되지 않았습니다.`);
           return;
         }
 
@@ -224,10 +338,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { name: "유진(여)", value: "YuJinNeural" },
           ].find((kv) => kv.value === ttsVoice)?.name ?? "선히(여)";
 
-        await guildData.action.reply(`현재 tts 목소리: \`${ttsName}\``);
+        await guildData.action.editReply(`현재 tts 목소리: \`${ttsName}\``);
       }
 
+      // 목소리 설정 명령
       if (interaction.commandName === "목소리설정") {
+        await guildData.action.deferReply();
+        
         const voice: string =
           interaction.options.getString("목소리") ?? "SeoHyeonNeural";
 
@@ -235,39 +352,50 @@ client.on(Events.InteractionCreate, async (interaction) => {
           where: { id: interaction.user.id },
         });
         if (!user) {
-          await guildData.action.reply(`유저가 등록되지 않았습니다.`);
+          await guildData.action.editReply(`유저가 등록되지 않았습니다.`);
           return;
         }
 
         await user.update({ ttsVoice: voice });
-        await guildData.action.reply(`목소리가 변경되었습니다.`);
+        await guildData.action.editReply(`목소리가 변경되었습니다.`);
       }
 
+      // TTS 속도 설정 명령
       if (interaction.commandName === "속도설정") {
+        await guildData.action.deferReply();
+        
         const speed: number = interaction.options.getInteger("속도값") ?? 0;
 
         const user: DATA | null = await Users.findOne({
           where: { id: interaction.user.id },
         });
         if (!user) {
-          await guildData.action.reply(`유저가 등록되지 않았습니다.`);
+          await guildData.action.editReply(`유저가 등록되지 않았습니다.`);
           return;
         }
 
         await user.update({ speed: speed });
-        await guildData.action.reply(`속도가 변경되었습니다.`);
+        await guildData.action.editReply(`속도가 변경되었습니다.`);
       }
 
+      // 음소거 명령
       if (interaction.commandName === "음소거") {
+        await guildData.action.deferReply();
         await server.update({ isMuted: true });
-        await guildData.action.reply(`음소거 되었습니다.`);
+        await guildData.action.editReply(`음소거 되었습니다.`);
       }
 
+      // 음소거 해제 명령
       if (interaction.commandName === "음소거해제") {
+        await guildData.action.deferReply();
         await server.update({ isMuted: false });
-        await guildData.action.reply(`음소거 해제되었습니다.`);
+        await guildData.action.editReply(`음소거 해제되었습니다.`);
       }
 
+      /**
+       * 동시재생 기능 (현재 비활성화)
+       * 여러 사람의 TTS를 동시에 믹싱하여 재생하는 기능
+       */
       // if (interaction.commandName === "동시재생") {
       //   const enabled: boolean =
       //     interaction.options.getBoolean("활성화") ?? false;
@@ -333,7 +461,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       //   }
       // }
 
-      // 슬래시 커맨드 사용시 아무 응답을 하지 않았을 경우 오류 응답 처리
+      // 응답하지 않은 경우 오류 메시지 전송
       if (!guildData.action.isReplied) {
         await guildData.action.reply(
           `예기치 못한 오류 발생. 개발자에게 문의해주세요.`
@@ -342,7 +470,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
   } catch (error) {
-    logger.error("Error handling interaction:", error);
+    logger.error("인터랙션 처리 오류:", error);
     try {
       if (interaction.isChatInputCommand() && !interaction.replied) {
         await interaction.reply({
@@ -351,14 +479,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
     } catch (replyError) {
-      logger.error("Failed to send error reply:", replyError);
+      logger.error("오류 응답 전송 실패:", replyError);
     }
   }
 });
 
+/**
+ * 메시지 생성 이벤트 핸들러
+ * TTS 채널에서 메시지가 생성될 때 텍스트를 음성으로 변환하여 재생
+ * 
+ * @remarks
+ * - 봇이 보낸 메시지는 무시
+ * - 설정된 TTS 채널의 메시지만 처리
+ * - 사용자가 음성 채널에 있을 때만 처리
+ * - 30분 후 자동으로 음성 채널에서 나감
+ */
 client.on(Events.MessageCreate, async (message) => {
   try {
-    // 봇이 보낸 메세지 또는 텍스트 메세지가 아니면 반응 안함.
     if (
       message.author.bot ||
       !(
@@ -370,7 +507,7 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
 
-    // get guild data
+    // 길드 데이터 가져오기 또는 생성
     let guildData: GuildData | undefined = guildDataList.find(
       (data) => data.guildId == message.guildId
     );
@@ -389,11 +526,11 @@ client.on(Events.MessageCreate, async (message) => {
 
     // guildData가 undefined가 아닌 것을 보장
     if (!guildData) {
-      logger.error("Failed to create guild data for message");
+      logger.error("메시지에 대한 길드 데이터 생성 실패");
       return;
     }
 
-    // get server data
+    // 서버 데이터 가져오기
     const server: DATA | null = await Servers.findOne({
       where: { id: message.guildId },
     });
@@ -402,6 +539,7 @@ client.on(Events.MessageCreate, async (message) => {
     const ttsChannel: string | null = server.dataValues.ttsChannel;
     if (!ttsChannel) return;
 
+    // TTS 채널이고 사용자가 같은 음성 채널에 있는지 확인
     if (
       message.channelId == ttsChannel &&
       (message.member.voice.channelId ==
@@ -415,7 +553,10 @@ client.on(Events.MessageCreate, async (message) => {
       });
       if (!user) return;
 
-      // 동시재생 모드 확인
+      /**
+       * 동시재생 모드 (현재 비활성화)
+       * 실시간으로 여러 TTS를 믹싱하여 동시에 재생하는 기능
+       */
       // const simultaneousPlayback = server.dataValues.simultaneousPlayback;
 
       // if (simultaneousPlayback) {
@@ -494,8 +635,9 @@ client.on(Events.MessageCreate, async (message) => {
       //       "실시간 TTS 믹싱 중 오류가 발생했습니다."
       //     );
       //   }
-      // } else {
-      // 기존 순차 재생 모드
+      // }
+
+      // 순차 재생 모드 (현재 사용 중)
       // logger.debug("🔄 Using sequential playback mode");
 
       if (
@@ -514,22 +656,62 @@ client.on(Events.MessageCreate, async (message) => {
         await guildData.action.joinVoiceChannel(guildData.audioPlayer);
       }
 
+      const originalText = message.content;
+      const parsedText = parseMessage(message.content);
+      const voiceName = user.dataValues.ttsVoice;
+      const speed = user.dataValues.speed;
+      const speedPercent = speed >= 1 ? `+${Math.round((speed - 1) * 100)}%` : `${Math.round((speed - 1) * 100)}%`;
+
       try {
+        logger.info(
+          `🗣️ TTS 변환 시작: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 원문: "${originalText}" → 변환: "${parsedText}" | 음성: ${voiceName}, 속도: ${speedPercent}`
+        );
+
         await msTTS(
-          parseMessage(message.content),
-          (stream: PassThrough) => {
-            const resource = createNewOggOpusAudioResource(stream);
-            guildData.audioPlayer?.play(resource);
+          parsedText,
+          (stream: PassThrough | null) => {
+            if (!stream) {
+              logger.warn(
+                `⚠️ TTS 스트림 null 반환: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 텍스트: "${parsedText}"`
+              );
+              guildData?.action.send("TTS 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+              return;
+            }
+            
+            if (!guildData?.audioPlayer) {
+              logger.warn(
+                `⚠️ 오디오 플레이어 없음: 서버 '${message.guild.name}' (ID: ${message.guildId})`
+              );
+              return;
+            }
+            
+            try {
+              const resource = createNewOggOpusAudioResource(stream);
+              guildData.audioPlayer.play(resource);
+              logger.info(
+                `▶️ TTS 재생 시작: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 음성: ${voiceName}, 속도: ${speedPercent}`
+              );
+            } catch (error) {
+              logger.error(
+                `❌ 오디오 리소스 생성/재생 실패: 서버 '${message.guild.name}' (ID: ${message.guildId})`,
+                error
+              );
+              guildData?.action.send("오디오 재생 중 오류가 발생했습니다.");
+            }
           },
-          user.dataValues.ttsVoice,
-          user.dataValues.speed
+          voiceName,
+          speed
         );
       } catch (e) {
-        logger.error("TTS generation failed:", e);
+        logger.error(
+          `❌ TTS 생성 실패: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 텍스트: "${parsedText}"`,
+          e
+        );
         await guildData.action.reply("TTS 생성 중 오류가 발생했습니다.");
       }
       // }
 
+      // 30분 후 자동으로 음성 채널에서 나가는 타임아웃 설정
       if (guildData.timeOut) {
         clearTimeout(guildData.timeOut);
       }
@@ -538,23 +720,41 @@ client.on(Events.MessageCreate, async (message) => {
         try {
           if (!getVoiceConnection(message.guildId)) return;
           if (guildData) {
-            guildData.audioPlayer?.stop();
-            guildData.audioPlayer = null;
+            // 오디오 플레이어 정리
+            if (guildData.audioPlayer) {
+              guildData.audioPlayer.stop();
+              guildData.audioPlayer = null;
+            }
+            
+            // 음성 연결 종료
             getVoiceConnection(message.guildId)?.destroy();
+            
             await guildData?.action.send("tts가 종료되었습니다.");
-            logger.info("TTS session timed out and disconnected");
+            logger.info(
+              `⏱️ TTS 세션 타임아웃: 서버 '${message.guild.name}' (ID: ${message.guildId}) | 연결 해제됨`
+            );
           }
         } catch (error) {
-          logger.error("Error during TTS timeout cleanup:", error);
+          logger.error(
+            `❌ TTS 타임아웃 정리 오류: 서버 '${message.guild.name}' (ID: ${message.guildId})`,
+            error
+          );
         }
       }, 1800_000);
       guildData.timeOut = timeOut;
     }
   } catch (error) {
-    logger.error("Error handling message:", error);
+    logger.error("메시지 처리 오류:", error);
   }
 });
 
+/**
+ * 음성 상태 변경 이벤트 핸들러
+ * 사용자가 음성 채널을 떠날 때 처리
+ * 
+ * @remarks
+ * 음성 채널에 봇만 남게 되면 자동으로 나감
+ */
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   try {
     if (!oldState.guild) {
@@ -579,35 +779,164 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
           (member) => !member.user.bot
         );
 
-        // 음성 채널에 남은 사람이 없는지 확인
+        // 음성 채널에 남은 사람이 없는지 확인 (봇 제외)
         if (nonBotMembers.size === 0) {
-          // 음성 채널에서 봇을 나가게 합니다.
           connection.destroy();
           const guildData: GuildData | undefined = guildDataList.find(
             (data) => data.guildId == oldState.guild.id
           );
-          if (!guildData) {
-            return;
+          if (guildData) {
+            // 타임아웃 정리
+            if (guildData.timeOut) {
+              clearTimeout(guildData.timeOut);
+              guildData.timeOut = null;
+            }
+            
+            // 오디오 플레이어 정리
+            if (guildData.audioPlayer) {
+              guildData.audioPlayer.stop();
+              guildData.audioPlayer = null;
+            }
           }
-          guildData.audioPlayer = null;
 
+          /**
+           * 오디오 믹서 정리 (현재 비활성화)
+           */
           // // 오디오 믹서도 정리
           // if (guildData.audioMixer) {
           //   guildData.audioMixer.destroy();
           //   guildData.audioMixer = null;
           // }
 
-          logger.info("Bot left empty voice channel");
+          logger.info(
+            `🚪 빈 음성 채널에서 봇 자동 퇴장: 서버 '${oldState.guild.name}' (ID: ${oldState.guild.id}) | 채널: '${channel.name}' (ID: ${channel.id})`
+          );
         }
       }
     }
   } catch (error) {
-    logger.error("Error handling voice state update:", error);
+    logger.error(
+      `❌ 음성 상태 업데이트 처리 오류: 서버 '${oldState.guild?.name}' (ID: ${oldState.guild?.id})`,
+      error
+    );
   }
 });
 
+/**
+ * 길드(서버) 삭제 이벤트 핸들러
+ * 봇이 서버에서 제거되거나 나갈 때 메모리와 데이터베이스 정리
+ */
+client.on(Events.GuildDelete, async (guild) => {
+  try {
+    logger.warn(`🚪 서버에서 봇 제거됨: "${guild.name}" (ID: ${guild.id})`);
+    
+    // guildDataList에서 해당 서버 데이터 제거
+    const guildDataIndex = guildDataList.findIndex(
+      (data) => data.guildId === guild.id
+    );
+    
+    if (guildDataIndex !== -1) {
+      const guildData = guildDataList[guildDataIndex];
+      
+      // 타임아웃 정리
+      if (guildData.timeOut) {
+        clearTimeout(guildData.timeOut);
+        guildData.timeOut = null;
+      }
+      
+      // 오디오 플레이어 정리
+      if (guildData.audioPlayer) {
+        guildData.audioPlayer.stop();
+        guildData.audioPlayer = null;
+      }
+      
+      // 음성 연결 정리
+      const voiceConnection = getVoiceConnection(guild.id);
+      if (voiceConnection) {
+        voiceConnection.destroy();
+      }
+      
+      // 리스트에서 제거
+      guildDataList.splice(guildDataIndex, 1);
+      logger.info(`✅ 서버 "${guild.name}" 데이터 정리 완료 (남은 서버: ${guildDataList.length}개)`);
+    }
+    
+    // DB에서 서버 데이터 제거
+    try {
+      const deletedJoins = await JoinedServer.destroy({
+        where: { server_id: guild.id }
+      });
+      
+      const deletedServer = await Servers.destroy({
+        where: { id: guild.id }
+      });
+      
+      if (deletedServer > 0) {
+        logger.info(`✅ 데이터베이스에서 서버 "${guild.name}" (ID: ${guild.id}) 제거 완료 (${deletedJoins}개 사용자 관계 삭제)`);
+      }
+    } catch (dbError) {
+      logger.error(`❌ 데이터베이스에서 서버 "${guild.name}" (ID: ${guild.id}) 제거 실패:`, dbError);
+    }
+  } catch (error) {
+    logger.error("길드 삭제 처리 오류:", error);
+  }
+});
+
+/**
+ * 길드(서버) 생성 이벤트 핸들러
+ * 봇이 새로운 서버에 추가될 때 자동으로 등록
+ */
+client.on(Events.GuildCreate, async (guild) => {
+  try {
+    logger.info(`🎉 새로운 서버에 봇 추가됨: "${guild.name}" (ID: ${guild.id}, 멤버: ${guild.memberCount}명)`);
+    
+    // DB에 서버 등록
+    const [server, created] = await Servers.findOrCreate({
+      where: { id: guild.id },
+      defaults: { id: guild.id }
+    });
+    
+    if (created) {
+      logger.info(`✅ 새 서버 "${guild.name}" (ID: ${guild.id}) 데이터베이스에 등록`);
+    } else {
+      logger.info(`📝 서버 "${guild.name}" (ID: ${guild.id})가 이미 데이터베이스에 존재`);
+    }
+    
+    // guildDataList에 추가 (아직 없는 경우)
+    const existingData = guildDataList.find((data) => data.guildId === guild.id);
+    if (!existingData) {
+      guildDataList.push({
+        guildId: guild.id,
+        audioPlayer: null,
+        action: new Action(),
+        timeOut: null,
+      });
+      logger.info(`✅ 서버 "${guild.name}"를 활성 서버 목록에 추가`);
+    }
+  } catch (error) {
+    logger.error("길드 생성 처리 오류:", error);
+  }
+});
+
+/**
+ * Discord 클라이언트 로그인
+ */
 client.login(TOKEN);
 
+/**
+ * 메시지 내용 파싱 함수
+ * TTS를 위해 메시지를 처리하고 정리
+ * 
+ * @param messageContent - 원본 메시지 내용
+ * @returns 파싱된 메시지 문자열
+ * 
+ * @remarks
+ * - 200자로 자름
+ * - 멘션, 역할, 채널, 이모지, URL 등을 적절한 텍스트로 변환
+ * - 한글 자음/모음을 읽을 수 있는 형태로 변환
+ * - 초성체(ㄱㅅ, ㅇㅈ 등)를 풀어서 변환
+ * - 특수문자 제거
+ */
 // function parseMessage(messageContent: string): string {
 //   // URL 제거
 //   const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -619,7 +948,7 @@ client.login(TOKEN);
 function parseMessage(messageContent: string): string {
   messageContent = messageContent.substring(0, 200);
 
-  // quick escape
+  // 빠른 단축어 처리
   if (messageContent == "ㅋ") return "킥";
   else if (messageContent == "ㅋㅋ") return "크크";
   else if (messageContent == "ㅋㅋㅋ") return "크크크";
@@ -632,7 +961,7 @@ function parseMessage(messageContent: string): string {
   else if (messageContent == "ㄹㅇ") return "레알";
   else if (messageContent == "ㅇㅋ") return "오키";
 
-  // check mention, role, channel, emoji, url first
+  // 멘션, 역할, 채널, 이모지, URL 처리
   const mentionReg = /<@([0-9]{3,})>/gi;
   const roleReg = /<@&([0-9]{3,})>/gi;
   const channelReg = /<#([0-9]{3,})>/gi;
@@ -646,12 +975,14 @@ function parseMessage(messageContent: string): string {
     .replace(emojiReg, " 이모지 ")
     .replace(urlReg, " 링크 ");
 
+  // 속삭임과 특수문자 제거
   const wisperReg = /\([^)]+\)/gi;
   const specialCharactersReg = /[\(\)\.\>\<\&\"\'\#\@\:]/gi;
   messageContent = messageContent
     .replace(wisperReg, " ")
     .replace(specialCharactersReg, " ");
 
+  // 예외 처리 (이모티콘)
   const regException = /ㅇㅅㅇ|ㅡㅅㅡ|ㅎㅅㅎ/gi;
   messageContent = messageContent.replace(regException, " ");
 
@@ -700,7 +1031,7 @@ function parseMessage(messageContent: string): string {
     .replace(regㅟ, "위")
     .replace(regㅢ, "의");
 
-  // 한글 초성체 정리
+  // 한글 초성체를 실제 단어로 변환
   const regㄴㅇㄱ = /ㄴㅇㄱ/gi; // 상상도 못한 정체!
   const regㄴㅆㄴ = /ㄴㅆㄴ/gi; // 넌 씨발 눈치도 없냐?
   const regㄷㅈㄹ = /ㄷㅈㄹ/gi; // 뒤질래?
@@ -787,6 +1118,9 @@ function parseMessage(messageContent: string): string {
     .replace(regㅋ, "크")
     .replace(regㅎ, "흐");
 
+  /**
+   * HTML 엔티티 인코딩 (현재 비활성화)
+   */
   // const gtReg = /[>]/gi;
   // const ltReg = /[<]/gi;
   // const ampReg = /[&]/gi;
@@ -802,6 +1136,12 @@ function parseMessage(messageContent: string): string {
   return messageContent;
 }
 
+/**
+ * 인터랙션에서 닉네임 가져오기
+ * 
+ * @param interaction - Discord 인터랙션 객체
+ * @returns 사용자의 표시 이름 또는 사용자명
+ */
 function getNickName(interaction: Interaction): string {
   if (interaction.member instanceof GuildMember) {
     return interaction.member.displayName;
@@ -812,6 +1152,11 @@ function getNickName(interaction: Interaction): string {
   return "Unknown";
 }
 
+/**
+ * 새로운 오디오 플레이어 생성
+ * 
+ * @returns 설정된 AudioPlayer 인스턴스
+ */
 function createNewAudioPlayer() {
   return createAudioPlayer({
     behaviors: {
@@ -820,17 +1165,27 @@ function createNewAudioPlayer() {
   });
 }
 
+/**
+ * Ogg Opus 오디오 리소스 생성
+ * 
+ * @param stream - 오디오 스트림
+ * @param inputType - 스트림 타입 (기본값: OggOpus)
+ * @returns AudioResource 인스턴스
+ */
 function createNewOggOpusAudioResource(
   stream: Stream.Readable,
   inputType: StreamType | undefined = undefined
 ) {
   const resource = createAudioResource(stream, {
     inputType: inputType ?? StreamType.OggOpus,
-    // silencePaddingFrames: 0,
   });
   return resource;
 }
 
+/**
+ * Raw PCM 오디오 리소스 생성 (현재 비활성화)
+ * 동시재생 기능을 위한 함수
+ */
 // function createNewAudioResource(
 //   stream: Stream.Readable,
 //   inputType: StreamType | undefined = undefined

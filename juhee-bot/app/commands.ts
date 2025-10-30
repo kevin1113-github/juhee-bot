@@ -1,5 +1,25 @@
+/**
+ * @fileoverview Discord 슬래시 커맨드 정의
+ * @description 봇이 사용하는 모든 슬래시 커맨드를 정의
+ * @author kevin1113dev
+ */
+
 import { ChannelType, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from 'discord.js';
 
+/**
+ * 슬래시 커맨드 목록
+ * 
+ * @remarks
+ * - /들어와: 음성 채널 참가
+ * - /나가: 음성 채널 퇴장
+ * - /채널설정: TTS 채널 설정
+ * - /채널해제: TTS 채널 해제
+ * - /목소리설정: TTS 목소리 변경
+ * - /현재목소리: 현재 설정된 목소리 확인
+ * - /속도설정: TTS 속도 조절
+ * - /음소거: 봇 음소거
+ * - /음소거해제: 봇 음소거 해제
+ */
 const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup"> | SlashCommandOptionsOnlyBuilder[] = [
   new SlashCommandBuilder()
     .setName('들어와')
@@ -64,6 +84,10 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
     .setName('음소거해제')
     .setDescription('주희의 음소거를 해제합니다.'),
 
+  /**
+   * 동시재생 기능 (현재 비활성화)
+   * 여러 사람의 TTS를 동시에 재생하는 기능
+   */
   // new SlashCommandBuilder()
   //   .setName('동시재생')
   //   .setDescription('여러 사람의 메시지를 동시에 TTS로 재생합니다.')
@@ -76,6 +100,9 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
   //   .setName('믹서상태')
   //   .setDescription('현재 동시재생 믹서 상태를 확인합니다.'),
 
+  /**
+   * 도움말 명령 (미구현)
+   */
   // new SlashCommandBuilder()
   //   .setName('도움말')
   //   .setDescription('도움말을 표시합니다.'),

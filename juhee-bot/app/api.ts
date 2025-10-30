@@ -1,7 +1,16 @@
+/**
+ * @fileoverview HTTP 서버 관리 클래스
+ * @description 공지 전송, 상태 조회, 설정 토글을 위한 HTTP 엔드포인트 제공
+ * @author kevin1113dev
+ */
+
 import { Client, EmbedBuilder, PartialGroupDMChannel } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
+
+/** HTTP 요청 인증을 위한 비밀번호 */
 const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? "";
+/** 주희봇 URL (로그 파일 접근용) */
 const JUHEE_URL: string = process.env.JUHEE_URL ?? "";
 
 import http from "http";
@@ -26,12 +35,31 @@ function getTable(data: any) {
   return (ts.read() || "").toString();
 }
 
+/** 언어 인식 옵션 (현재 미사용) */
 export let recognizeOption = false;
 
+/**
+ * HTTP 서버 관리 클래스
+ * 
+ * @remarks
+ * - POST /notice: 모든 서버에 공지 전송
+ * - POST /toggleRecognize: 언어 인식 토글
+ * - POST /status: 상태 정보 조회
+ * - GET /status/{filename}: 상태 파일 다운로드
+ */
 export default class HttpServer {
+  /** HTTP 서버 인스턴스 */
   private server: http.Server;
+  
+  /** Discord 클라이언트 */
   private client: Client;
 
+  /**
+   * 모든 서버의 TTS 채널에 공지 전송
+   * 
+   * @param data - 전송할 임베드 메시지
+   * @private
+   */
   private async notice(data: EmbedBuilder) {
     try {
       await Servers.sync();
@@ -112,6 +140,13 @@ export default class HttpServer {
     }
   }
 
+  /**
+   * 봇의 현재 상태 정보 생성
+   * 서버, 사용자, 관계 정보를 표 형식으로 반환
+   * 
+   * @returns 상태 파일 URL
+   * @private
+   */
   private async status(): Promise<String> {
     try {
       const servers = await Servers.findAll();
@@ -195,15 +230,15 @@ export default class HttpServer {
     const filename = `status_${timestamp}.txt`;
     const filepath = path.join(process.cwd(), "public", "status", filename);
 
-    // Ensure public directory exists
+    // public 디렉토리 생성
     fs.mkdirSync(path.join(process.cwd(), "public", "status"), {
       recursive: true,
     });
 
-    // Write result to file
+    // 결과를 파일로 저장
     fs.writeFileSync(filepath, await result());
 
-    // Get public URL (assuming your server is running on port 3000)
+    // 공개 URL 생성
     const publicUrl = `${JUHEE_URL}:8080/status/${filename}`;
 
     return publicUrl;
@@ -213,13 +248,35 @@ export default class HttpServer {
     }
   }
 
+  /**
+   * HTTP 요청 핸들러
+   * 각종 POST/GET 엔드포인트 처리
+   * 
+   * @private
+   */
   private requestHandler = (
     req: http.IncomingMessage,
     res: http.ServerResponse
   ) => {
+    // POST 요청 크기 제한 (1MB)
+    const MAX_POST_SIZE = 1024 * 1024; // 1MB
+    
     if (req.url === "/notice" && req.method === "POST") {
       let postData: string = "";
+      let dataSize = 0;
+      
       req.on("data", (data) => {
+        dataSize += data.length;
+        
+        // 크기 제한 초과 확인
+        if (dataSize > MAX_POST_SIZE) {
+          logger.warn(`⚠️ POST request size limit exceeded: ${dataSize} bytes`);
+          res.writeHead(413, { "Content-Type": "text/plain" });
+          res.end("Payload too large");
+          req.destroy();
+          return;
+        }
+        
         postData += typeof data === "string" ? data : data.toString();
       });
       req.on("end", async () => {
@@ -250,7 +307,19 @@ export default class HttpServer {
       });
     } else if (req.url === "/toggleRecognize" && req.method === "POST") {
       let postData: string = "";
+      let dataSize = 0;
+      
       req.on("data", (data) => {
+        dataSize += data.length;
+        
+        if (dataSize > MAX_POST_SIZE) {
+          logger.warn(`⚠️ POST request size limit exceeded: ${dataSize} bytes`);
+          res.writeHead(413, { "Content-Type": "text/plain" });
+          res.end("Payload too large");
+          req.destroy();
+          return;
+        }
+        
         postData += typeof data === "string" ? data : data.toString();
       });
       req.on("end", async () => {
@@ -272,7 +341,19 @@ export default class HttpServer {
       });
     } else if (req.url === "/status" && req.method === "POST") {
       let postData: string = "";
+      let dataSize = 0;
+      
       req.on("data", (data) => {
+        dataSize += data.length;
+        
+        if (dataSize > MAX_POST_SIZE) {
+          logger.warn(`⚠️ POST request size limit exceeded: ${dataSize} bytes`);
+          res.writeHead(413, { "Content-Type": "text/plain" });
+          res.end("Payload too large");
+          req.destroy();
+          return;
+        }
+        
         postData += typeof data === "string" ? data : data.toString();
       });
       req.on("end", async () => {
@@ -293,16 +374,65 @@ export default class HttpServer {
         }
       });
     } else if (req.url?.startsWith('/status/') && req.method === "GET") {
-      const filePath = path.join(process.cwd(), 'public', req.url);
-      fs.readFile(filePath, (err, data) => {
-        if (err) {
-          res.writeHead(404);
-          res.end('File not found');
+      try {
+        // Path traversal 공격 방지
+        const requestedFile = req.url.substring(8); // '/status/' 제거
+        
+        // 파일명 검증: 알파벳, 숫자, 언더스코어, 점, 하이픈만 허용
+        const safeFilenameRegex = /^[a-zA-Z0-9_.-]+$/;
+        if (!safeFilenameRegex.test(requestedFile)) {
+          logger.warn(`⚠️ Suspicious file request blocked: ${requestedFile}`);
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end('Invalid filename');
           return;
         }
-        res.writeHead(200);
-        res.end(data);
-      });
+        
+        // 상대 경로(.., ./) 포함 여부 확인
+        if (requestedFile.includes('..') || requestedFile.includes('./')) {
+          logger.warn(`⚠️ Path traversal attempt blocked: ${requestedFile}`);
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end('Invalid path');
+          return;
+        }
+        
+        // .txt 파일만 허용
+        if (!requestedFile.endsWith('.txt')) {
+          logger.warn(`⚠️ Non-txt file request blocked: ${requestedFile}`);
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end('Only .txt files allowed');
+          return;
+        }
+        
+        // 안전한 경로 구성
+        const safePath = path.join(process.cwd(), 'public', 'status', path.basename(requestedFile));
+        
+        // 최종 경로가 public/status 디렉토리 내에 있는지 확인
+        const publicStatusDir = path.join(process.cwd(), 'public', 'status');
+        const resolvedPath = path.resolve(safePath);
+        if (!resolvedPath.startsWith(publicStatusDir)) {
+          logger.warn(`⚠️ Path escape attempt blocked: ${resolvedPath}`);
+          res.writeHead(403, { "Content-Type": "text/plain" });
+          res.end('Access denied');
+          return;
+        }
+        
+        // 파일 읽기
+        fs.readFile(resolvedPath, (err, data) => {
+          if (err) {
+            logger.warn(`📄 Status file not found: ${requestedFile}`);
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end('File not found');
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end(data);
+          logger.debug(`📄 Status file served: ${requestedFile}`);
+        });
+      } catch (error) {
+        logger.error("Error serving status file:", error);
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end('Internal server error');
+      }
     } else {
       res.writeHead(404, { "Content-Type": "text/html" });
       res.write("<h1>404 Not Found</h1>");
@@ -310,11 +440,20 @@ export default class HttpServer {
     }
   };
 
+  /**
+   * HttpServer 생성자
+   * 
+   * @param client - Discord 클라이언트 인스턴스
+   */
   constructor(client: Client) {
     this.server = http.createServer(this.requestHandler);
     this.client = client;
   }
 
+  /**
+   * HTTP 서버 시작
+   * 포트 8080에서 리스닝 시작
+   */
   start() {
     try {
       this.server.listen(8080, () => {
@@ -329,6 +468,9 @@ export default class HttpServer {
     }
   }
 
+  /**
+   * HTTP 서버 종료
+   */
   stop() {
     try {
       this.server.close(() => {

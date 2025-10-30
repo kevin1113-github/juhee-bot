@@ -1,25 +1,45 @@
+/**
+ * @fileoverview 로깅 시스템
+ * @description 파일 기반 로깅 및 개발/프로덕션 모드 지원
+ * @author kevin1113dev
+ */
+
 import dotenv from "dotenv";
 dotenv.config();
 
 import fs from "fs";
 import path from "path";
 
+/** 개발 모드 여부 */
 const DEV_MODE: boolean = process.env.DEV_MODE === "true";
 
-// 한국 시간은 UTC보다 9시간 빠르기 때문에 9시간의 밀리세컨드를 표현한다.
+/** 한국 시간대 오프셋 (UTC+9) */
 const koreaTimeDiff = 9 * 60 * 60 * 1000;
 
-// 한국 시간을 반환하는 헬퍼 함수
+/**
+ * 한국 시간 반환 헬퍼 함수
+ * 
+ * @param date - 변환할 날짜 (선택적)
+ * @returns 한국 시간대로 변환된 Date 객체
+ */
 function getKoreaTime(date?: Date): Date {
   const now = date || new Date();
   return new Date(now.getTime() + koreaTimeDiff);
 }
 
-// 한국 시간을 ISO 형식으로 반환하는 헬퍼 함수
+/**
+ * 한국 시간 ISO 문자열 반환
+ * 
+ * @param date - 변환할 날짜 (선택적)
+ * @returns ISO 형식의 한국 시간 문자열
+ */
 function getKoreaISOString(date?: Date): string {
   return getKoreaTime(date).toISOString();
 }
 
+/**
+ * 로그 레벨 열거형
+ */
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -27,14 +47,37 @@ export enum LogLevel {
   ERROR = 3
 }
 
+/**
+ * 로거 클래스
+ * 
+ * @remarks
+ * - 파일과 콘솔 동시 로깅
+ * - 개발/프로덕션 모드별 로그 폴더 분리
+ * - 한국 시간대 지원
+ * - Circular reference 처리
+ * - 7일 이상 된 로그 자동 정리
+ */
 class Logger {
+  /** 로그 파일 경로 */
   private logFilePath: string = "";
+  
+  /** 로그 파일 쓰기 스트림 */
   private logStream: fs.WriteStream | null = null;
 
+  /**
+   * Logger 생성자
+   * 로그 파일 초기화
+   */
   constructor() {
     this.initializeLogFile();
   }
 
+  /**
+   * 로그 파일 초기화
+   * 개발/프로덕션 모드에 따라 로그 폴더 생성 및 파일 생성
+   * 
+   * @private
+   */
   private initializeLogFile(): void {
     try {
       // 개발 모드에 따라 로그 폴더 분리
@@ -70,7 +113,7 @@ class Logger {
 
       console.log(`📝 Log file created (${mode}): ${this.logFilePath}`);
     } catch (error) {
-      console.error("Failed to initialize log file:", error);
+      console.error("로그 파일 초기화 실패:", error);
     }
   }
 
@@ -168,43 +211,43 @@ class Logger {
 
   // 봇 관련 특수 로그 메서드들
   botReady(tag: string): void {
-    this.info(`🤖 Bot is ready! Logged in as ${tag}`);
+    this.info(`🤖 봇이 준비되었습니다: ${tag}`);
   }
 
   commandRefresh(): void {
-    this.info('🔄 Refreshing application commands...');
+    this.info('🔄 슬래시 커맨드를 새로고침하는 중...');
   }
 
   commandRefreshSuccess(): void {
-    this.info('✅ Application commands loaded successfully!');
+    this.info('✅ 슬래시 커맨드가 성공적으로 로드되었습니다');
   }
 
   serverNotRegistered(): void {
-    this.warn("🚫 Server not registered in database");
+    this.warn("⚠️ 서버가 데이터베이스에 등록되지 않았습니다");
   }
 
   reconnectionFailed(error: any): void {
-    this.error("🔌 Voice connection reconnection failed:", error);
+    this.error("🔌 음성 연결 재연결 실패:", error);
   }
 
   messageDeleteFailed(id: string, error: any): void {
-    this.error(`🗑️ Failed to delete message ${id}:`, error);
+    this.error(`🗑️ 메시지 삭제 실패 (ID: ${id}):`, error);
   }
 
   unhandledRejection(error: any): void {
-    this.error('💥 Unhandled promise rejection:', error);
+    this.error('💥 처리되지 않은 Promise 거부:', error);
   }
 
   httpServerStart(port: number): void {
-    this.info(`🌐 HTTP server started on port ${port}`);
+    this.info(`🌐 HTTP 서버가 포트 ${port}에서 시작되었습니다`);
   }
 
   httpServerClose(): void {
-    this.info("🌐 HTTP server closed");
+    this.info("🌐 HTTP 서버가 종료되었습니다");
   }
 
   httpError(error: any): void {
-    this.error('🌐 HTTP Server Error:', error);
+    this.error('🌐 HTTP 서버 오류:', error);
   }
 
   // 로그 파일 정리 메서드
@@ -216,7 +259,7 @@ class Logger {
         this.logStream = null;
       }
     } catch (error) {
-      console.error("Failed to cleanup logger:", error);
+      console.error("로거 정리 실패:", error);
     }
   }
 
@@ -240,13 +283,13 @@ class Logger {
             
             if (stats.mtime.getTime() < sevenDaysAgo) {
               fs.unlinkSync(filePath);
-              this.info(`🗑️ Deleted old log file: ${folderName}/${file}`);
+              this.info(`🗑️ 오래된 로그 파일 삭제: ${folderName}/${file}`);
             }
           }
         });
       });
     } catch (error) {
-      this.error("Failed to cleanup old logs:", error);
+      this.error("오래된 로그 정리 실패:", error);
     }
   }
 
