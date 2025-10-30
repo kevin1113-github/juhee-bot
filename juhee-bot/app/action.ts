@@ -66,7 +66,7 @@ export default class Action {
    * 
    * @throws {Error} 음성 채널 퇴장 중 오류 발생 시
    */
-  async exitVoiceChannel() {
+  async exitVoiceChannel(guildData?: any) {
     try {
       if (!this.interaction) return;
       if (!this.interaction.guildId) return;
@@ -79,6 +79,19 @@ export default class Action {
         return;
       } else {
         voiceConnection.destroy();
+        
+        // 타임아웃 정리
+        if (guildData?.timeOut) {
+          clearTimeout(guildData.timeOut);
+          guildData.timeOut = null;
+        }
+        
+        // 오디오 플레이어 정리
+        if (guildData?.audioPlayer) {
+          guildData.audioPlayer.stop();
+          guildData.audioPlayer = null;
+        }
+        
         await this.reply("음성채널 나감");
         const guildName = this.interaction instanceof Message 
           ? this.interaction.guild?.name 
@@ -274,6 +287,7 @@ export default class Action {
    * @remarks
    * - 최대 3번까지 재시도
    * - 점진적으로 대기 시간 증가
+   * - 채널 접근 권한 및 존재 여부 확인
    */
   private async reconnectVoiceChannel(
     voiceChannel: VoiceBasedChannel, 
@@ -281,6 +295,33 @@ export default class Action {
     retryCount: number = 0
   ) {
     try {
+      // 채널 존재 여부 및 접근 가능 여부 확인
+      const guild = voiceChannel.guild;
+      try {
+        const refreshedChannel = await guild.channels.fetch(voiceChannel.id);
+        if (!refreshedChannel || !refreshedChannel.isVoiceBased()) {
+          logger.warn(
+            `🔌 음성 채널이 삭제되었거나 접근할 수 없음: 서버 '${guild.name}' | 채널 ID: ${voiceChannel.id}`
+          );
+          return; // 재연결 중단
+        }
+        
+        // 봇이 채널에 접근할 수 있는지 권한 확인
+        const permissions = refreshedChannel.permissionsFor(guild.members.me!);
+        if (!permissions?.has(['Connect', 'Speak'])) {
+          logger.warn(
+            `🔌 음성 채널 접근 권한 없음: 서버 '${guild.name}' | 채널: '${refreshedChannel.name}'`
+          );
+          return; // 재연결 중단
+        }
+      } catch (fetchError) {
+        logger.error(
+          `🔌 채널 정보 가져오기 실패: 서버 '${guild.name}' | 채널 ID: ${voiceChannel.id}`,
+          fetchError
+        );
+        return; // 재연결 중단
+      }
+      
       logger.info(
         `🔌 음성 채널 재연결 시도: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}' (${retryCount}번째 시도)`
       );
@@ -329,7 +370,11 @@ export default class Action {
       if (retryCount < 3) {
         setTimeout(() => {
           this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
-        }, 5000 * retryCount); // 점진적으로 대기 시간 증가
+        }, 5000 * (retryCount + 1)); // 점진적으로 대기 시간 증가 (5초, 10초, 15초)
+      } else {
+        logger.error(
+          `🔌 최대 재연결 시도 횟수 도달, 재연결 포기: 서버 '${voiceChannel.guild.name}'`
+        );
       }
     }
   }

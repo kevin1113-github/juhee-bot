@@ -111,9 +111,11 @@ client.once(Events.ClientReady, async () => {
   try {
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     logger.info("🔄 데이터베이스 초기화 중...");
-    await Servers.sync({ alter: true }); // 기존 테이블 구조 업데이트
-    await Users.sync({ alter: true });
-    await JoinedServer.sync({ alter: true });
+    // alter: true는 데이터 손실 위험이 있으므로 제거
+    // 프로덕션에서는 마이그레이션을 사용하거나 force: false로 안전하게 처리
+    await Servers.sync(); // 테이블이 없으면 생성, 있으면 유지
+    await Users.sync();
+    await JoinedServer.sync();
     logger.info("✅ 데이터베이스 초기화 완료");
 
     const servers = await Servers.findAll();
@@ -273,8 +275,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // 음성 채널 나가기 명령
       if (interaction.commandName === "나가") {
-        guildData.audioPlayer = null;
-        await guildData.action.exitVoiceChannel();
+        await guildData.action.exitVoiceChannel(guildData);
       }
 
       // TTS 채널 설정 명령
@@ -678,7 +679,15 @@ client.on(Events.MessageCreate, async (message) => {
               return;
             }
             
-            if (!guildData?.audioPlayer) {
+            // guildData 및 audioPlayer null 체크 강화
+            if (!guildData) {
+              logger.warn(
+                `⚠️ GuildData 없음: 서버 '${message.guild.name}' (ID: ${message.guildId})`
+              );
+              return;
+            }
+            
+            if (!guildData.audioPlayer) {
               logger.warn(
                 `⚠️ 오디오 플레이어 없음: 서버 '${message.guild.name}' (ID: ${message.guildId})`
               );
@@ -696,7 +705,7 @@ client.on(Events.MessageCreate, async (message) => {
                 `❌ 오디오 리소스 생성/재생 실패: 서버 '${message.guild.name}' (ID: ${message.guildId})`,
                 error
               );
-              guildData?.action.send("오디오 재생 중 오류가 발생했습니다.");
+              guildData.action.send("오디오 재생 중 오류가 발생했습니다.");
             }
           },
           voiceName,
