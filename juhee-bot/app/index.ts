@@ -1270,11 +1270,11 @@ if (KOREANBOTS_TOKEN && !client.shard) {
     try {
       const totalGuilds = client.guilds.cache.size;
 
-      const response = await fetch("https://koreanbots.dev/api/v2/bots/servers", {
+      const response = await fetch(`https://koreanbots.dev/api/v2/bots/${CLIENT_ID}/stats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${KOREANBOTS_TOKEN}`,
+          "Authorization": KOREANBOTS_TOKEN,
         },
         body: JSON.stringify({
           servers: totalGuilds,
