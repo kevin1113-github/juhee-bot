@@ -15,6 +15,8 @@ import path from "path";
 
 /** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
+/** Discord 애플리케이션 클라이언트 ID (봇 ID) */
+const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
 /** 한국 디스코드 리스트 API 토큰 (선택 사항) */
 const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
 
@@ -199,13 +201,13 @@ setInterval(async () => {
     });
 
     // 한국 디스코드 리스트 업데이트
-    if (KOREANBOTS_TOKEN) {
+    if (KOREANBOTS_TOKEN && CLIENT_ID) {
       try {
-        const response = await fetch("https://koreanbots.dev/api/v2/bots/servers", {
+        const response = await fetch(`https://koreanbots.dev/api/v2/bots/${CLIENT_ID}/stats`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${KOREANBOTS_TOKEN}`,
+            "Authorization": KOREANBOTS_TOKEN,
           },
           body: JSON.stringify({
             servers: totalGuilds,
