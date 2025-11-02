@@ -15,6 +15,8 @@ import path from "path";
 
 /** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
+/** 한국 디스코드 리스트 API 토큰 (선택 사항) */
+const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
 
 if (!TOKEN) {
   logger.error("❌ Discord 봇 토큰이 설정되지 않았습니다. .env 파일을 확인하세요.");
@@ -176,7 +178,7 @@ manager
   });
 
 /**
- * 샤드 통계 출력 (5분마다)
+ * 샤드 통계 출력 및 한국 디스코드 리스트 업데이트 (10분마다)
  */
 setInterval(async () => {
   try {
@@ -196,11 +198,39 @@ setInterval(async () => {
       logger.info(`   📍 샤드 #${index}: ${guildCount}개 서버`);
     });
 
+    // 한국 디스코드 리스트 업데이트
+    if (KOREANBOTS_TOKEN) {
+      try {
+        const response = await fetch("https://koreanbots.dev/api/v2/bots/servers", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": KOREANBOTS_TOKEN,
+          },
+          body: JSON.stringify({
+            servers: totalGuilds,
+            shards: manager.totalShards,
+          }),
+        });
+
+        if (response.ok) {
+          logger.info(`   ✅ 한국 디스코드 리스트 업데이트 성공`);
+        } else {
+          const errorText = await response.text();
+          logger.warn(`   ⚠️ 한국 디스코드 리스트 업데이트 실패: ${response.status} - ${errorText}`);
+        }
+      } catch (kbError) {
+        logger.warn(`   ⚠️ 한국 디스코드 리스트 업데이트 오류:`, kbError);
+      }
+    } else {
+      logger.debug(`   ℹ️ KOREANBOTS_TOKEN이 설정되지 않아 한국 디스코드 리스트 업데이트를 건너뜁니다.`);
+    }
+
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   } catch (error) {
     logger.error("❌ 샤드 통계 수집 오류:", error);
   }
-}, 300000); // 5분 (300초)
+}, 600000); // 10분 (600초)
 
 /**
  * 샤드 간 통신 예시
