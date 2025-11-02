@@ -232,7 +232,9 @@ export default class Action {
         if (retryCount < MAX_RETRIES) {
           // 재연결 시도
           setTimeout(() => {
-            this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
+            this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1).catch((err) => {
+              logger.error(`🔌 재연결 중 예외 발생: 서버 '${voiceChannel.guild.name}'`, err);
+            });
           }, RETRY_DELAY);
         } else {
           logger.reconnectionFailed(error);
@@ -250,29 +252,39 @@ export default class Action {
 
     // 일반 오류 처리
     connection.on('error', (error) => {
-      logger.error(
-        `🔌 음성 연결 오류: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`,
-        error
-      );
-      
-      // 타임아웃 에러의 경우 재연결 시도
-      if (error.message?.includes('ETIMEDOUT') && retryCount < MAX_RETRIES) {
-        logger.warn(
-          `🔌 타임아웃 오류, 재연결 시도: 서버 '${voiceChannel.guild.name}' (${retryCount + 1}/${MAX_RETRIES})`
+      try {
+        logger.error(
+          `🔌 음성 연결 오류: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`,
+          error
         );
-        setTimeout(() => {
-          this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
-        }, RETRY_DELAY);
-      } else {
-        logger.reconnectionFailed(error);
+        
+        // 타임아웃 에러의 경우 재연결 시도
+        if (error.message?.includes('ETIMEDOUT') && retryCount < MAX_RETRIES) {
+          logger.warn(
+            `🔌 타임아웃 오류, 재연결 시도: 서버 '${voiceChannel.guild.name}' (${retryCount + 1}/${MAX_RETRIES})`
+          );
+          setTimeout(() => {
+            this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1).catch((err) => {
+              logger.error(`🔌 재연결 중 예외 발생: 서버 '${voiceChannel.guild.name}'`, err);
+            });
+          }, RETRY_DELAY);
+        } else {
+          logger.reconnectionFailed(error);
+        }
+      } catch (handlerError) {
+        logger.error(`🔌 에러 핸들러 내부 오류: 서버 '${voiceChannel.guild.name}'`, handlerError);
       }
     });
 
     // 상태 변화 디버그 로깅
     connection.on('stateChange', (oldState, newState) => {
-      logger.debug(
-        `🔌 음성 연결 상태 변경: ${oldState.status} -> ${newState.status} (서버: '${voiceChannel.guild.name}')`
-      );
+      try {
+        logger.debug(
+          `🔌 음성 연결 상태 변경: ${oldState.status} -> ${newState.status} (서버: '${voiceChannel.guild.name}')`
+        );
+      } catch (stateChangeError) {
+        logger.error('🔌 상태 변경 로깅 오류:', stateChangeError);
+      }
     });
   }
 
@@ -306,8 +318,16 @@ export default class Action {
           return; // 재연결 중단
         }
         
+        // 봇 멤버 객체 확인
+        if (!guild.members.me) {
+          logger.warn(
+            `🔌 봇 멤버 정보를 가져올 수 없음: 서버 '${guild.name}'`
+          );
+          return; // 재연결 중단
+        }
+        
         // 봇이 채널에 접근할 수 있는지 권한 확인
-        const permissions = refreshedChannel.permissionsFor(guild.members.me!);
+        const permissions = refreshedChannel.permissionsFor(guild.members.me);
         if (!permissions?.has(['Connect', 'Speak'])) {
           logger.warn(
             `🔌 음성 채널 접근 권한 없음: 서버 '${guild.name}' | 채널: '${refreshedChannel.name}'`

@@ -37,7 +37,8 @@ export async function RegisterUser(interaction: Interaction) {
       defaults: { id: interaction.user.id }
     });
     if (userCreated) {
-      logger.info(`✅ 사용자 "${interaction.user.username}" (${interaction.user.id}) 데이터베이스에 등록`);
+      const displayName = interaction.member && 'displayName' in interaction.member ? interaction.member.displayName : interaction.user.username;
+      logger.info(`✅ 사용자 "${displayName}" (${interaction.user.id}) 데이터베이스에 등록`);
     }
     
     // JoinedServer 등록 (findOrCreate로 경쟁 조건 방지)
@@ -46,7 +47,8 @@ export async function RegisterUser(interaction: Interaction) {
       defaults: { server_id: interaction.guildId, user_id: interaction.user.id }
     });
     if (joinCreated) {
-      logger.info(`✅ 사용자 "${interaction.user.username}"가 서버 "${interaction.guild?.name}"에 참가`);
+      const displayName = interaction.member && 'displayName' in interaction.member ? interaction.member.displayName : interaction.user.username;
+      logger.info(`✅ 사용자 "${displayName}"가 서버 "${interaction.guild?.name}"에 참가`);
     }
   } catch (error) {
     logger.error("인터랙션에서 사용자 등록 실패:", error);
@@ -80,7 +82,8 @@ export async function RegisterUserMsg(interaction: Message) {
       defaults: { id: interaction.author.id }
     });
     if (userCreated) {
-      logger.info(`✅ 사용자 "${interaction.author.username}" (${interaction.author.id}) 데이터베이스에 등록`);
+      const displayName = interaction.member?.displayName || interaction.author.username;
+      logger.info(`✅ 사용자 "${displayName}" (${interaction.author.id}) 데이터베이스에 등록`);
     }
     
     // JoinedServer 등록 (findOrCreate로 경쟁 조건 방지)
@@ -89,7 +92,8 @@ export async function RegisterUserMsg(interaction: Message) {
       defaults: { server_id: interaction.guildId, user_id: interaction.author.id }
     });
     if (joinCreated) {
-      logger.info(`✅ 사용자 "${interaction.author.username}"가 서버 "${interaction.guild?.name}"에 참가`);
+      const displayName = interaction.member?.displayName || interaction.author.username;
+      logger.info(`✅ 사용자 "${displayName}"가 서버 "${interaction.guild?.name}"에 참가`);
     }
   } catch (error) {
     logger.error("메시지에서 사용자 등록 실패:", error);

@@ -104,10 +104,6 @@ async function msTTS(
         break;
     }
 
-    logger.debug(
-      `🗣️  TTS: ${textData.substring(0, 50)}... (${language}, ${voice})`
-    );
-
     // speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff48Khz16BitMonoPcm;
     speechConfig.speechSynthesisOutputFormat =
       sdk.SpeechSynthesisOutputFormat.Ogg24Khz16BitMonoOpus;
@@ -139,17 +135,13 @@ async function msTTS(
                                     errorMessage.includes('1011');
             
             if (isRetriableError && retryCount < MAX_RETRIES) {
-              logger.warn(
-                `⚠️ TTS 합성 오류, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..." | 음성: ${voiceName}`
-              );
+              logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
               setTimeout(() => {
                 msTTS(textData, callback, voiceName, speed, retryCount + 1);
               }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
             } else {
               // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
-              logger.error(
-                `❌ TTS 합성 재시도 한계 도달 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
-              );
+              logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
               if (typeof callback === 'function') {
                 try {
                   callback(null); // null을 전달하여 오디오가 없음을 알림
@@ -163,7 +155,7 @@ async function msTTS(
 
           const { audioData } = result;
           if (!audioData) {
-            logger.warn(`⚠️ TTS audioData 비어있음 | 텍스트: "${textData.substring(0, 30)}..."`);
+            logger.debug(`⚠️ TTS audioData 비어있음`);
             // 오디오 데이터가 없어도 콜백을 호출
             if (typeof callback === 'function') {
               try {
@@ -181,9 +173,6 @@ async function msTTS(
           if (typeof callback === 'function') {
             try {
               callback(bufferStream);
-              logger.debug(
-                `✅ TTS 합성 완료: "${textData.substring(0, 30)}..." | 음성: ${voiceName}, 크기: ${audioData.byteLength} bytes`
-              );
             } catch (callbackError) {
               logger.error("❌ TTS 스트림 콜백 실패:", callbackError);
             }
@@ -211,17 +200,13 @@ async function msTTS(
                                 errorMessage.includes('1011');
         
         if (isRetriableError && retryCount < MAX_RETRIES) {
-          logger.warn(
-            `⚠️ TTS 합성 실패, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
-          );
+          logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
           setTimeout(() => {
             msTTS(textData, callback, voiceName, speed, retryCount + 1);
           }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
         } else {
           // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
-          logger.error(
-            `❌ TTS 합성 재시도 한계 도달 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
-          );
+          logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
           if (typeof callback === 'function') {
             try {
               callback(null);
@@ -237,16 +222,12 @@ async function msTTS(
     
     // 재시도 로직
     if (retryCount < MAX_RETRIES) {
-      logger.warn(
-        `⚠️ TTS 초기화 실패, 재시도 중... (${retryCount + 1}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
-      );
+      logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
       setTimeout(() => {
         msTTS(textData, callback, voiceName, speed, retryCount + 1);
       }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
     } else {
-      logger.error(
-        `❌ TTS 모든 재시도 실패 (${retryCount}/${MAX_RETRIES}) | 텍스트: "${textData.substring(0, 30)}..."`
-      );
+      logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
       if (typeof callback === 'function') {
         try {
           callback(null);

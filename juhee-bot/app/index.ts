@@ -58,10 +58,18 @@ const guildDataList: GuildData[] = [];
  */
 process.on("unhandledRejection", (reason, promise) => {
   logger.unhandledRejection(reason);
+  // 상세 스택 트레이스 로깅
+  if (reason instanceof Error) {
+    logger.error("💥 Unhandled Rejection Stack:", reason.stack);
+  }
+  // 치명적인 에러로 간주하고 프로세스 종료 (nodemon이 재시작)
+  logger.error("⚠️ 처리되지 않은 Promise rejection으로 인해 프로세스 종료");
+  process.exit(1);
 });
 
 process.on("uncaughtException", (error) => {
   logger.error("💥 처리되지 않은 예외:", error);
+  logger.error("💥 Exception Stack:", error.stack);
   process.exit(1);
 });
 
@@ -662,18 +670,15 @@ client.on(Events.MessageCreate, async (message) => {
       const voiceName = user.dataValues.ttsVoice;
       const speed = user.dataValues.speed;
       const speedPercent = speed >= 1 ? `+${Math.round((speed - 1) * 100)}%` : `${Math.round((speed - 1) * 100)}%`;
+      const displayName = message.member?.displayName || message.author.username;
 
       try {
-        logger.info(
-          `🗣️ TTS 변환 시작: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 원문: "${originalText}" → 변환: "${parsedText}" | 음성: ${voiceName}, 속도: ${speedPercent}`
-        );
-
         await msTTS(
           parsedText,
           (stream: PassThrough | null) => {
             if (!stream) {
               logger.warn(
-                `⚠️ TTS 스트림 null 반환: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 텍스트: "${parsedText}"`
+                `⚠️ TTS 실패: [${message.guild.name}] ${displayName} | "${parsedText}"`
               );
               guildData?.action.send("TTS 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
               return;
@@ -681,16 +686,12 @@ client.on(Events.MessageCreate, async (message) => {
             
             // guildData 및 audioPlayer null 체크 강화
             if (!guildData) {
-              logger.warn(
-                `⚠️ GuildData 없음: 서버 '${message.guild.name}' (ID: ${message.guildId})`
-              );
+              logger.warn(`⚠️ GuildData 없음: ${message.guild.name}`);
               return;
             }
             
             if (!guildData.audioPlayer) {
-              logger.warn(
-                `⚠️ 오디오 플레이어 없음: 서버 '${message.guild.name}' (ID: ${message.guildId})`
-              );
+              logger.warn(`⚠️ 오디오 플레이어 없음: ${message.guild.name}`);
               return;
             }
             
@@ -698,13 +699,10 @@ client.on(Events.MessageCreate, async (message) => {
               const resource = createNewOggOpusAudioResource(stream);
               guildData.audioPlayer.play(resource);
               logger.info(
-                `▶️ TTS 재생 시작: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 음성: ${voiceName}, 속도: ${speedPercent}`
+                `🎵 TTS: [${message.guild.name}] ${displayName} (${message.member?.voice.channel?.name || '알수없음'}) | "${originalText}" → "${parsedText}" | ${voiceName} ${speedPercent}`
               );
             } catch (error) {
-              logger.error(
-                `❌ 오디오 리소스 생성/재생 실패: 서버 '${message.guild.name}' (ID: ${message.guildId})`,
-                error
-              );
+              logger.error(`❌ 재생 실패: [${message.guild.name}] ${displayName}`, error);
               guildData.action.send("오디오 재생 중 오류가 발생했습니다.");
             }
           },
@@ -712,10 +710,7 @@ client.on(Events.MessageCreate, async (message) => {
           speed
         );
       } catch (e) {
-        logger.error(
-          `❌ TTS 생성 실패: 사용자 '${message.author.username}' (서버: '${message.guild.name}') | 텍스트: "${parsedText}"`,
-          e
-        );
+        logger.error(`❌ TTS 오류: [${message.guild.name}] ${displayName} | "${parsedText}"`, e);
         await guildData.action.reply("TTS 생성 중 오류가 발생했습니다.");
       }
       // }
