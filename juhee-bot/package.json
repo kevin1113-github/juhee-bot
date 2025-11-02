@@ -44,6 +44,7 @@
     "@snazzah/davey": "^0.1.7",
     "discord.js": "^14.24.2",
     "dotenv": "^17.2.3",
+    "koreanbots": "^3.2.1",
     "libsodium-wrappers": "^0.7.15",
     "microsoft-cognitiveservices-speech-sdk": "^1.46.0",
     "node-audio-mixer": "^2.1.0",
