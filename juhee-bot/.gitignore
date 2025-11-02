@@ -156,5 +156,4 @@ bin
 .pm2
 .pm2.log
 DEPLOYMENT.md
-ecosystem.config.cjs
 SHARDING.md
