@@ -205,7 +205,7 @@ setInterval(async () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": KOREANBOTS_TOKEN,
+            "Authorization": `Bearer ${KOREANBOTS_TOKEN}`,
           },
           body: JSON.stringify({
             servers: totalGuilds,
