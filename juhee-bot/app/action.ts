@@ -454,8 +454,7 @@ export default class Action {
       if (this.isReplied) return;
 
       await this.interaction.deferReply({ 
-        ephemeral,
-        fetchReply: false 
+        flags: ephemeral ? MessageFlags.Ephemeral : undefined
       });
       this.isReplied = true;
       logger.debug("✅ 인터랙션 응답 유예");

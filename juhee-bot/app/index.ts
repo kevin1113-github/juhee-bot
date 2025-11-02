@@ -25,6 +25,7 @@ import {
   Events,
   Interaction,
   GuildMember,
+  MessageFlags,
 } from "discord.js";
 import {
   getVoiceConnection,
@@ -269,11 +270,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         guildData.action.setInteraction(interaction);
       }
 
-      // guildData가 undefined가 아닌 것을 보장
-      if (!guildData) {
-        await interaction.reply("서버 데이터를 가져올 수 없습니다.");
-        return;
-      }
+      // // guildData가 undefined가 아닌 것을 보장
+      // if (!guildData) {
+      //   await interaction.reply("서버 데이터를 가져올 수 없습니다.");
+      //   return;
+      // }
 
       // 음성 채널 참가 명령
       if (interaction.commandName === "들어와") {
@@ -484,7 +485,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.isChatInputCommand() && !interaction.replied) {
         await interaction.reply({
           content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     } catch (replyError) {
