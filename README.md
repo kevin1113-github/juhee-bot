@@ -233,6 +233,34 @@ Microsoft Azure Cognitive Services의 고품질 음성 합성 엔진을 사용�
 - **TTS 엔진**: Microsoft Azure Cognitive Services
 - **데이터베이스**: SQLite (Sequelize ORM)
 - **로깅**: 커스텀 로거 (한국 시간대 지원)
+- **프로세스 관리**: PM2 (무중단 배포)
+- **샤딩**: Discord.js ShardingManager (확장성)
+
+---
+
+## 🚀 배포하기
+
+주희봇을 직접 호스팅하고 싶으신가요? [배포 가이드(DEPLOYMENT.md)](./juhee-bot/DEPLOYMENT.md)를 참고하세요.
+
+### 주요 배포 기능
+
+- ✅ **무중단 배포**: PM2를 사용한 zero-downtime deployment
+- ✅ **자동 재시작**: 오류 발생 시 자동으로 재시작
+- ✅ **로그 관리**: 체계적인 로그 수집 및 관리
+- ✅ **프로세스 모니터링**: 실시간 상태 확인
+- ✅ **샤딩 지원**: 대규모 서버를 위한 수평 확장
+
+### Discord 샤딩
+
+봇이 많은 서버에서 사용되나요? [샤딩 가이드(SHARDING.md)](./juhee-bot/SHARDING.md)를 확인하세요.
+
+**샤딩이란?**: 봇을 여러 프로세스로 분산하여 성능과 안정성을 향상시키는 기술
+
+- 🔷 **1,000개 서버 이상**: 권장
+- 🔷 **2,500개 서버 이상**: 필수 (Discord 요구사항)
+- 🔷 **자동 설정**: Discord API가 최적의 샤드 수 계산
+
+자세한 설정 및 사용법은 각 가이드를 확인하세요.
 
 ---
 

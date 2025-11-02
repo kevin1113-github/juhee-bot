@@ -3,6 +3,11 @@
  * @description Discord 서버에서 텍스트를 음성으로 변환하여 음성 채널에서 재생하는 봇
  * @author kevin1113dev
  * @version 1.0.0
+ * 
+ * @remarks
+ * 이 파일은 샤딩을 지원합니다. 
+ * - 단독 실행: node index.js (샤딩 없이 실행)
+ * - 샤딩 실행: node shard.js (샤딩 매니저를 통해 실행)
  */
 
 import dotenv from "dotenv";
@@ -100,6 +105,9 @@ try {
 /**
  * Discord 클라이언트 인스턴스 생성
  * 필요한 Intent(권한)를 설정하여 봇이 서버, 음성 상태, 메시지를 처리할 수 있도록 함
+ * 
+ * @remarks
+ * 샤딩을 사용하는 경우 각 샤드가 별도의 클라이언트 인스턴스를 가짐
  */
 const client = new Client({
   intents: [
@@ -108,6 +116,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  shards: "auto", // 샤딩 매니저에서 자동으로 샤드 ID 할당
 });
 
 let httpServer: HttpServer;
@@ -118,6 +127,14 @@ let httpServer: HttpServer;
  */
 client.once(Events.ClientReady, async () => {
   try {
+    // 샤드 정보 로깅
+    const shardInfo = client.shard
+      ? `샤드 #${client.shard.ids[0]} / ${client.shard.count}`
+      : "샤딩 없음";
+    
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    logger.info(`🔷 ${shardInfo}`);
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     logger.info("🔄 데이터베이스 초기화 중...");
     // alter: true는 데이터 손실 위험이 있으므로 제거
@@ -193,16 +210,25 @@ client.once(Events.ClientReady, async () => {
     const finalJoinCount = await JoinedServer.count();
     
     logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    logger.info(`📊 데이터베이스 통계:`);
-    logger.info(`   🏢 접속 중인 서버: ${actualGuilds.size}개`);
+    logger.info(`📊 데이터베이스 통계 (${shardInfo}):`);
+    logger.info(`   🏢 이 샤드의 서버: ${actualGuilds.size}개`);
     logger.info(`   💾 등록된 서버: ${finalServerCount}개`);
     logger.info(`   👥 등록된 사용자: ${finalUserCount}명`);
     logger.info(`   🔗 서버-사용자 관계: ${finalJoinCount}개`);
     logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    httpServer = new HttpServer(client);
-    httpServer.start();
-    logger.botReady(client.user?.tag || "Unknown");
+    // HTTP 서버는 샤드 #0에서만 시작 (중복 방지)
+    if (!client.shard || client.shard.ids[0] === 0) {
+      httpServer = new HttpServer(client);
+      httpServer.start();
+      logger.info("🌐 HTTP 서버 시작 (샤드 #0)");
+    } else {
+      logger.info(`ℹ️ HTTP 서버는 샤드 #0에서 실행됩니다 (현재: 샤드 #${client.shard.ids[0]})`);
+    }
+    
+    const botTag = client.user?.tag || "Unknown";
+    logger.botReady(botTag);
+    logger.info(`🔷 샤드 정보: ${shardInfo}`);
 
     // // Clean up old logs
     // logger.cleanupOldLogs();

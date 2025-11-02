@@ -12,6 +12,11 @@ dotenv.config();
 const REQUEST_PASSWORD: string = process.env.REQUEST_PASSWORD ?? "";
 /** 주희봇 URL (로그 파일 접근용) */
 const JUHEE_URL: string = process.env.JUHEE_URL ?? "";
+/** 포트 번호 */
+const PORT: number = (() => {
+  const p = parseInt(process.env.PORT ?? "8080", 10);
+  return isNaN(p) ? 8080 : p;
+})();
 
 import http from "http";
 import { JoinedServer, Servers, Users } from "./dbObject.js";
@@ -239,7 +244,7 @@ export default class HttpServer {
     fs.writeFileSync(filepath, await result());
 
     // 공개 URL 생성
-    const publicUrl = `${JUHEE_URL}:8080/status/${filename}`;
+    const publicUrl = `${JUHEE_URL}:${PORT}/status/${filename}`;
 
     return publicUrl;
     } catch (error) {
@@ -452,12 +457,11 @@ export default class HttpServer {
 
   /**
    * HTTP 서버 시작
-   * 포트 8080에서 리스닝 시작
    */
   start() {
     try {
-      this.server.listen(8080, () => {
-        logger.httpServerStart(8080);
+      this.server.listen(PORT, () => {
+        logger.httpServerStart(PORT);
       });
       
       this.server.on('error', (error) => {

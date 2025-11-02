@@ -152,3 +152,8 @@ include
 bin
 
 .cursor
+# PM2 files
+.pm2
+.pm2.log
+DEPLOYMENT.md
+SHARDING.md
