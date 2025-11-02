@@ -17,6 +17,8 @@ dotenv.config();
 const TOKEN: string = process.env.TOKEN ?? "";
 /** Discord 애플리케이션 클라이언트 ID */
 const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
+/** 한국 디스코드 리스트 API 토큰 (선택 사항) */
+const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
 
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
@@ -1254,3 +1256,46 @@ function createNewOggOpusAudioResource(
 
 //   return input;
 // }
+
+/**
+ * 한국 디스코드 리스트 업데이트 (10분마다)
+ * 샤딩을 사용하지 않는 경우에만 작동
+ * 
+ * @remarks
+ * 샤딩을 사용하는 경우 shard.ts에서 전체 서버 수를 집계하여 업데이트하므로
+ * 여기서는 샤딩을 사용하지 않는 경우(client.shard가 null)에만 실행
+ */
+if (KOREANBOTS_TOKEN && !client.shard) {
+  setInterval(async () => {
+    try {
+      const totalGuilds = client.guilds.cache.size;
+
+      const response = await fetch("https://koreanbots.dev/api/v2/bots/servers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": KOREANBOTS_TOKEN,
+        },
+        body: JSON.stringify({
+          servers: totalGuilds,
+          shards: 1,
+        }),
+      });
+
+      if (response.ok) {
+        logger.info(`✅ 한국 디스코드 리스트 업데이트 성공 (서버: ${totalGuilds}개)`);
+      } else {
+        const errorText = await response.text();
+        logger.warn(`⚠️ 한국 디스코드 리스트 업데이트 실패: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      logger.error("❌ 한국 디스코드 리스트 업데이트 오류:", error);
+    }
+  }, 600000); // 10분 (600초)
+
+  logger.info("📡 한국 디스코드 리스트 자동 업데이트 활성화 (10분 주기, 샤딩 없음)");
+} else if (KOREANBOTS_TOKEN && client.shard) {
+  logger.info("ℹ️ 샤딩 모드 감지: 한국 디스코드 리스트 업데이트는 샤드 매니저에서 처리됩니다.");
+} else {
+  logger.info("ℹ️ KOREANBOTS_TOKEN이 설정되지 않아 한국 디스코드 리스트 업데이트를 비활성화합니다.");
+}
