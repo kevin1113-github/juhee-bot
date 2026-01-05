@@ -21,6 +21,20 @@ const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
 const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
 const TTS_LIMIT: number = parseInt(process.env.TTS_LIMIT ?? "200", 10);
 
+// ShardingManager로 실행되는 샤드 프로세스라면 환경변수로 샤드 정보가 주입됨
+// discord.js(v14) 기준: SHARDS(샤드 ID), SHARD_COUNT(총 샤드 수)
+// 일부 환경/버전에서 SHARD_ID를 쓰는 경우도 있어 호환 처리
+const parseNonNegativeInt = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) return null;
+  return parsed;
+};
+
+const SHARD_ID: number | null =
+  parseNonNegativeInt(process.env.SHARD_ID) ??
+  parseNonNegativeInt(process.env.SHARDS);
+
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
 
@@ -95,14 +109,35 @@ process.on("SIGINT", () => {
  * Discord 슬래시 커맨드 등록
  * 봇이 시작될 때 모든 커맨드를 Discord API에 등록
  */
-const rest = new REST({ version: "10" }).setToken(TOKEN);
-try {
-  logger.commandRefresh();
-  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: Commands });
-  logger.commandRefreshSuccess();
-} catch (error) {
-  logger.error("슬래시 커맨드 로드 실패:", error);
+if (!TOKEN) {
+  logger.error("❌ Discord 봇 토큰이 설정되지 않았습니다. .env 파일을 확인하세요.");
   process.exit(1);
+}
+
+if (!CLIENT_ID) {
+  logger.error(
+    "❌ Discord 애플리케이션 클라이언트 ID(CLIENT_ID)가 설정되지 않았습니다. .env 파일을 확인하세요."
+  );
+  process.exit(1);
+}
+
+// 샤딩 모드에서는 모든 샤드가 동시에 등록을 시도하면 레이트리밋/중복 호출이 발생할 수 있어
+// 샤드 #0(또는 비샤딩)에서만 커맨드를 등록
+const shouldRegisterCommands = SHARD_ID === null || SHARD_ID === 0;
+if (shouldRegisterCommands) {
+  const rest = new REST({ version: "10" }).setToken(TOKEN);
+  try {
+    logger.commandRefresh();
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: Commands });
+    logger.commandRefreshSuccess();
+  } catch (error) {
+    logger.error("슬래시 커맨드 로드 실패:", error);
+    process.exit(1);
+  }
+} else {
+  logger.info(
+    `ℹ️ 샤딩 모드: 슬래시 커맨드 등록은 샤드 #0에서만 수행됩니다 (현재: 샤드 #${SHARD_ID}).`
+  );
 }
 
 /**
@@ -119,7 +154,6 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
-  shards: "auto", // 샤딩 매니저에서 자동으로 샤드 ID 할당
 });
 
 let httpServer: HttpServer;
