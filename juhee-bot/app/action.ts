@@ -484,7 +484,7 @@ export default class Action {
         return;
       }
 
-      if (server.dataValues.isMuted) return;
+      if (server.dataValues.isMuted && !force) return;
 
       await this.interaction.editReply({
         content: msg,
