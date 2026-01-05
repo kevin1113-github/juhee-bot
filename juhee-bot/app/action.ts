@@ -470,7 +470,7 @@ export default class Action {
    * @param msg - 전송할 메시지 내용
    * @throws {Error} 응답 수정 중 오류 발생 시
    */
-  async editReply(msg: string): Promise<void> {
+  async editReply(msg: string, force: boolean = false): Promise<void> {
     try {
       if (!this.interaction) return;
       if (this.interaction instanceof Message) return;

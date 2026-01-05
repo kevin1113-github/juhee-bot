@@ -455,7 +455,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.commandName === "음소거") {
         await guildData.action.deferReply();
         await server.update({ isMuted: true });
-        await guildData.action.editReply(`음소거 되었습니다.`);
+        await guildData.action.editReply(`음소거 되었습니다.`, true);
       }
 
       // 음소거 해제 명령
