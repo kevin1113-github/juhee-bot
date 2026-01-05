@@ -19,6 +19,7 @@ const TOKEN: string = process.env.TOKEN ?? "";
 const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
 /** 한국 디스코드 리스트 API 토큰 (선택 사항) */
 const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
+const TTS_LIMIT: number = parseInt(process.env.TTS_LIMIT ?? "200", 10);
 
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
@@ -695,6 +696,9 @@ client.on(Events.MessageCreate, async (message) => {
       }
 
       const originalText = message.content;
+      if (message.content.length > TTS_LIMIT) {
+        await guildData.action.reply(`메시지가 너무 깁니다. ${TTS_LIMIT}자에서 재생이 제한됩니다.`);
+      }
       const parsedText = parseMessage(message.content);
       const voiceName = user.dataValues.ttsVoice;
       const speed = user.dataValues.speed;
@@ -979,7 +983,7 @@ client.login(TOKEN);
 // }
 
 function parseMessage(messageContent: string): string {
-  messageContent = messageContent.substring(0, 200);
+  const truncateToLimit = (text: string) => Array.from(text).slice(0, TTS_LIMIT).join("");
 
   // 빠른 단축어 처리
   if (messageContent == "ㅋ") return "킥";
@@ -994,13 +998,16 @@ function parseMessage(messageContent: string): string {
   else if (messageContent == "ㄹㅇ") return "레알";
   else if (messageContent == "ㅇㅋ") return "오키";
 
-  // 멘션, 역할, 채널, 이모지, URL 처리
-  const mentionReg = /<@([0-9]{3,})>/gi;
+  // 멘션, 역할, 채널, 이모지, URL 처리, new line 제거
+  // - 유저 멘션은 <@id>, <@!id> 형태 모두 존재
+  // - 커스텀 이모지는 <:name:id>, <a:name:id> (animated) 형태 모두 존재
+  const mentionReg = /<@!?([0-9]{3,})>/gi;
   const roleReg = /<@&([0-9]{3,})>/gi;
   const channelReg = /<#([0-9]{3,})>/gi;
-  const emojiReg = /<\:[^\:]+\:([0-9]{3,})>/gi;
+  const emojiReg = /<a?\:[^\:]+\:([0-9]{3,})>/gi;
+  // 메시지 전체가 URL일 때만 매칭되던 ^...$ 패턴을 제거하고, 문장 내 URL도 치환
   const urlReg =
-    /^(file|gopher|news|nntp|telnet|https?|ftps?|sftp):\/\/([a-z0-9-]+\.)+[a-z0-9]{2,4}.*$/gi;
+    /(?:file|gopher|news|nntp|telnet|https?|ftps?|sftp):\/\/[\w\-._~:/?#[\]@!$&'()*+,;=%]+/gi;
   messageContent = messageContent
     .replace(mentionReg, " 멘션 ")
     .replace(roleReg, " 역할 ")
@@ -1008,9 +1015,9 @@ function parseMessage(messageContent: string): string {
     .replace(emojiReg, " 이모지 ")
     .replace(urlReg, " 링크 ");
 
-  // 속삭임과 특수문자 제거
+  // 속삭임과 특수문자 제거 (괄호, 점, 부등호, 앰퍼샌드, 따옴표, 샵, 골뱅이, 콜론, 개행)
   const wisperReg = /\([^)]+\)/gi;
-  const specialCharactersReg = /[\(\)\.\>\<\&\"\'\#\@\:]/gi;
+  const specialCharactersReg = /[\(\)\.\>\<\&\"\'\#\@\:\n\r\t]/gi;
   messageContent = messageContent
     .replace(wisperReg, " ")
     .replace(specialCharactersReg, " ");
@@ -1166,7 +1173,11 @@ function parseMessage(messageContent: string): string {
   // messageContent = messageContent.replace(quoteReg, "&quot;");
   // messageContent = messageContent.replace(aposReg, "&apos;");
 
-  return messageContent;
+  // 공백 정리 + 앞뒤 trim (치환 과정에서 공백이 누적되는 경우가 많음)
+  messageContent = messageContent.replace(/\s+/g, " ").trim();
+
+  // 치환 결과가 200자를 넘을 수 있으므로 최종 결과도 200자로 제한
+  return truncateToLimit(messageContent);
 }
 
 /**
