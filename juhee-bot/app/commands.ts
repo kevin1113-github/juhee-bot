@@ -75,6 +75,10 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setMinValue(0)
         .setMaxValue(100)
         .setRequired(true)),
+  
+  new SlashCommandBuilder()
+    .setName('현재속도')
+    .setDescription('현재 설정 된 tts 속도를 확인합니다.'),
       
   new SlashCommandBuilder()
     .setName('음소거')

@@ -14,8 +14,8 @@ module.exports = {
   apps: [
     {
       // ===== 샤딩을 사용하는 경우 (권장) =====
-      name: 'juhee-bot-sharded',
-      script: './.cache/app/shard.js',
+      name: 'juhee-bot',
+      script: './.cache/app/index.js',
       cwd: './',
       
       // 실행 모드
@@ -38,8 +38,8 @@ module.exports = {
       restart_delay: 4000,
       
       // 로그 관리
-      error_file: './logs-prod/error-sharded.log',
-      out_file: './logs-prod/out-sharded.log',
+      error_file: './logs/error.log',
+      out_file: './logs/out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
       
@@ -47,46 +47,6 @@ module.exports = {
       wait_ready: true,
       listen_timeout: 60000, // 샤딩 시작 시간이 더 걸리므로 타임아웃 증가
       kill_timeout: 10000, // 모든 샤드 종료 시간 고려
-      
-      // 시간 설정
-      time: true,
-    },
-    {
-      // ===== 샤딩을 사용하지 않는 경우 (기본) =====
-      // 소규모 봇 (2,500개 서버 미만)이거나 테스트용으로 사용
-      name: 'juhee-bot',
-      script: './.cache/app/index.js',
-      cwd: './',
-      
-      // 실행 모드
-      instances: 1,
-      exec_mode: 'fork',
-      
-      // 환경 변수
-      env: {
-        NODE_ENV: 'production',
-      },
-      
-      // 자동 재시작 설정
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '1G',
-      
-      // 재시작 전략
-      min_uptime: '10s',
-      max_restarts: 10,
-      restart_delay: 4000,
-      
-      // 로그 관리
-      error_file: './logs-prod/error.log',
-      out_file: './logs-prod/out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      
-      // 무중단 배포 설정
-      wait_ready: true,
-      listen_timeout: 10000,
-      kill_timeout: 5000,
       
       // 시간 설정
       time: true,
@@ -101,27 +61,27 @@ module.exports = {
    * 예: pm2 deploy production setup
    *     pm2 deploy production update
    */
-  deploy: {
-    production: {
-      // SSH 설정
-      user: 'ubuntu', // 서버 사용자명
-      host: 'your-server-ip', // 서버 IP 또는 도메인
-      ref: 'origin/main', // 배포할 브랜치
-      repo: 'git@github.com:kevin1113-github/juhee-bot.git', // Git 저장소
-      path: '/home/ubuntu/juhee-bot', // 서버의 배포 경로
+  // deploy: {
+  //   production: {
+  //     // SSH 설정
+  //     user: 'ubuntu', // 서버 사용자명
+  //     host: 'your-server-ip', // 서버 IP 또는 도메인
+  //     ref: 'origin/main', // 배포할 브랜치
+  //     repo: 'git@github.com:kevin1113-github/juhee-bot.git', // Git 저장소
+  //     path: '/home/ubuntu/juhee-bot', // 서버의 배포 경로
       
-      // 배포 후 실행할 명령어
-      'pre-deploy-local': 'echo "로컬에서 배포 전 실행"',
-      'post-deploy': 
-        'npm install && ' +
-        'npm run build && ' +
-        'pm2 reload ecosystem.config.cjs --env production && ' +
-        'pm2 save',
+  //     // 배포 후 실행할 명령어
+  //     'pre-deploy-local': 'echo "로컬에서 배포 전 실행"',
+  //     'post-deploy': 
+  //       'npm install && ' +
+  //       'npm run build && ' +
+  //       'pm2 reload ecosystem.config.cjs --env production && ' +
+  //       'pm2 save',
       
-      // 환경 변수
-      env: {
-        NODE_ENV: 'production',
-      },
-    },
-  },
+  //     // 환경 변수
+  //     env: {
+  //       NODE_ENV: 'production',
+  //     },
+  //   },
+  // },
 };

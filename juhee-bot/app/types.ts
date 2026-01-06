@@ -26,12 +26,6 @@ export type GuildData = {
   /** 오디오 플레이어 인스턴스 */
   audioPlayer: AudioPlayer | null;
   
-  /**
-   * 오디오 믹서 (현재 비활성화)
-   * 동시재생 기능을 위한 믹서
-   */
-  // audioMixer: AudioMixer | null;
-  
   /** 액션 관리 인스턴스 */
   action: Action;
   

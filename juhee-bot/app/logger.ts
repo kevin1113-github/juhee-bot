@@ -63,12 +63,16 @@ class Logger {
   
   /** 로그 파일 쓰기 스트림 */
   private logStream: fs.WriteStream | null = null;
+  private shardId: number | undefined = undefined;
 
   /**
    * Logger 생성자
    * 로그 파일 초기화
    */
-  constructor() {
+  constructor(shardLoggerConstructorOptions?: {
+    shardId?: number;
+  }) {
+    this.shardId = shardLoggerConstructorOptions?.shardId;
     this.initializeLogFile();
   }
 
@@ -96,7 +100,7 @@ class Logger {
         .slice(0, 19); // YYYY-MM-DD_HH-MM-SS 형식
 
       const modePrefix = DEV_MODE ? "dev" : "prod";
-      this.logFilePath = path.join(logsDir, `juhee-bot_${modePrefix}_${timestamp}.log`);
+      this.logFilePath = path.join(logsDir, `juhee_${timestamp}${this.shardId !== undefined ? `_shard${this.shardId}` : ""}.log`);
       
       // 로그 스트림 생성
       this.logStream = fs.createWriteStream(this.logFilePath, { flags: "a" });
@@ -109,6 +113,9 @@ class Logger {
       this.writeToFile(`Node Version: ${process.version}\n`);
       this.writeToFile(`Platform: ${process.platform}\n`);
       this.writeToFile(`DEV_MODE: ${DEV_MODE}\n`);
+      if (this.shardId !== undefined) {
+        this.writeToFile(`Shard ID: ${this.shardId}\n`);
+      }
       this.writeToFile("=".repeat(60) + "\n\n");
 
       console.log(`📝 Log file created (${mode}): ${this.logFilePath}`);
@@ -125,7 +132,7 @@ class Logger {
 
   private formatMessage(level: string, message: string): string {
     const timestamp = getKoreaISOString();
-    return `[${timestamp}] [${level}] ${message}`;
+    return `[${timestamp}] [${level}] ${this.shardId !== undefined ? `[Shard ${this.shardId}] ` : ""}${message}`;
   }
 
   private log(level: LogLevel, levelName: string, message: string, ...args: any[]): void {
@@ -299,4 +306,17 @@ class Logger {
   }
 }
 
-export const logger = new Logger(); 
+// let loggerInstance: Logger | undefined = undefined;
+// function uninitializedLogger(): Logger {
+//   console.error("Logger가 초기화되지 않았습니다. createLogger()를 먼저 호출하세요.");
+//   process.exit(1);
+//   return new Logger({}); // 이 줄은 실제로 실행되지 않음
+// }
+
+// export const createLogger = (shardId?: number): Logger => {
+//   loggerInstance = new Logger({ shardId });
+//   return loggerInstance;
+// }
+// export const logger: Logger = loggerInstance ?? uninitializedLogger();
+
+export const logger = new Logger(process.env.SHARDS ? { shardId: parseInt(process.env.SHARDS, 10) } : {});
