@@ -12,6 +12,7 @@ import { ShardingManager } from "discord.js";
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
 import path from "path";
+import fs from "node:fs";
 
 /** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
@@ -209,10 +210,49 @@ if (KOREANBOTS_TOKEN) {
         0
       );
 
+      // 디스크에 누적 저장된 TTS 캐시 통계(샤드별 파일) 합산
+      const ttsTotals = { hits: 0, misses: 0, inflightWaits: 0, errors: 0 };
+      try {
+        const statsDir = process.env.TTS_CACHE_DIR
+          ? path.resolve(process.env.TTS_CACHE_DIR)
+          : path.join(process.cwd(), ".ttsCache");
+
+        if (fs.existsSync(statsDir)) {
+          const files = fs
+            .readdirSync(statsDir)
+            .filter(
+              (f) => f.startsWith("tts-stats-") && f.toLowerCase().endsWith(".json")
+            );
+
+          for (const file of files) {
+            try {
+              const raw = fs.readFileSync(path.join(statsDir, file), "utf8");
+              const s = JSON.parse(raw);
+              ttsTotals.hits += Number(s?.hits ?? 0) || 0;
+              ttsTotals.misses += Number(s?.misses ?? 0) || 0;
+              ttsTotals.inflightWaits += Number(s?.inflightWaits ?? 0) || 0;
+              ttsTotals.errors += Number(s?.errors ?? 0) || 0;
+            } catch {
+              // 개별 파일 파싱 실패는 무시
+            }
+          }
+        }
+      } catch (ttsError) {
+        logger.warn("⚠️ TTS 캐시 통계(파일) 수집 실패:", ttsError);
+      }
+
+      const denom = ttsTotals.hits + ttsTotals.misses;
+      const hitRate = denom > 0 ? (ttsTotals.hits / denom) * 100 : 0;
+
       logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       logger.info("📊 샤드 통계:");
       logger.info(`   🔷 총 샤드 수: ${manager.totalShards}개`);
       logger.info(`   🏢 총 서버 수: ${totalGuilds}개`);
+      logger.info(
+        `   🔊 TTS 캐시: 히트 ${ttsTotals.hits}, 미스 ${ttsTotals.misses}, 대기 ${ttsTotals.inflightWaits}, 오류 ${ttsTotals.errors}, 히트율 ${hitRate.toFixed(
+          1
+        )}%`
+      );
 
       // 각 샤드별 서버 수 출력
       results.forEach((guildCount: any, index: number) => {

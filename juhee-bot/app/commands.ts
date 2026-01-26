@@ -10,13 +10,13 @@ import { ChannelType, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from
  * 슬래시 커맨드 목록
  * 
  * @remarks
- * - /들어와: 음성 채널 참가
- * - /나가: 음성 채널 퇴장
+ * - /들어와: 음성 채널에 참가
+ * - /나가: 음성 채널에서 나감
  * - /채널설정: TTS 채널 설정
  * - /채널해제: TTS 채널 해제
  * - /목소리설정: TTS 목소리 변경
- * - /현재목소리: 현재 설정된 목소리 확인
- * - /속도설정: TTS 속도 조절
+ * - /속도설정: TTS 속도 변경
+ * - /현재설정: 현재 설정된 목소리 및 속도 확인
  * - /음소거: 봇 음소거
  * - /음소거해제: 봇 음소거 해제
  */
@@ -63,10 +63,6 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName('현재목소리')
-    .setDescription('현재 설정 된 목소리를 확인합니다.'),
-
-  new SlashCommandBuilder()
     .setName('속도설정')
     .setDescription('tts 속도를 변경합니다. (0: 느림, 100: 빠름)')
     .addIntegerOption(option =>
@@ -77,8 +73,8 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
         .setRequired(true)),
   
   new SlashCommandBuilder()
-    .setName('현재속도')
-    .setDescription('현재 설정 된 tts 속도를 확인합니다.'),
+    .setName('현재설정')
+    .setDescription('현재 설정 된 목소리 및 속도를 확인합니다.'),
       
   new SlashCommandBuilder()
     .setName('음소거')

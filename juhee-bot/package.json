@@ -7,10 +7,10 @@
     "lib": "lib"
   },
   "scripts": {
-    "dev": "nodemon ./.cache/app/index.js > ./app.log &",
-    "dev:shard": "nodemon ./.cache/app/index.js",
     "build": "tsc",
-    "start": "node ./.cache/app/index.js",
+    "start": "npm run build && npm run pm2:start",
+    "reload": "npm run build && npm run pm2:reload",
+    "stop": "npm run pm2:delete",
     "updateCommands": "node ./.cache/app/updateCommands.js",
     "deleteAllCommands": "node ./.cache/app/deleteAllCommands.js",
     "pm2:start": "pm2 start ecosystem.config.cjs --only juhee-bot",

@@ -274,9 +274,9 @@ client.once(Events.ClientReady, async () => {
  * - /나가: 음성 채널에서 나감
  * - /채널설정: TTS 채널 설정
  * - /채널해제: TTS 채널 해제
- * - /현재목소리: 현재 설정된 TTS 목소리 확인
  * - /목소리설정: TTS 목소리 변경
  * - /속도설정: TTS 속도 변경
+ * - /현재설정: 현재 설정된 목소리 및 속도 확인
  * - /음소거: 봇 음소거
  * - /음소거해제: 봇 음소거 해제
  */
@@ -372,7 +372,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // 현재 설정된 목소리 확인 명령
-      if (interaction.commandName === "현재목소리") {
+      if (interaction.commandName === "현재설정") {
         await guildData.action.deferReply(isEmpheral);
 
         const user: DATA | null = await Users.findOne({
@@ -397,7 +397,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { name: "유진(여)", value: "YuJinNeural" },
           ].find((kv) => kv.value === ttsVoice)?.name ?? "선히(여)";
 
-        await guildData.action.editReply(`현재 tts 목소리: \`${ttsName}\``);
+        const speed: number = user.dataValues.speed ?? 30;
+        await guildData.action.editReply(`현재 tts 설정:`, `목소리: \`${ttsName}\`\n 속도: \`${speed}\``);
       }
 
       // 목소리 설정 명령
@@ -435,22 +436,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await user.update({ speed: speed });
         await guildData.action.editReply(`속도가 변경되었습니다.`);
-      }
-
-      // 현재 설정된 속도 확인 명령
-      if (interaction.commandName === "현재속도") {
-        await guildData.action.deferReply(isEmpheral);
-
-        const user: DATA | null = await Users.findOne({
-          where: { id: interaction.user.id },
-        });
-        if (!user) {
-          await guildData.action.userNotRegistered();
-          return;
-        }
-
-        const speed: number = user.dataValues.speed ?? 30;
-        await guildData.action.editReply(`현재 tts 속도: \`${speed}\``);
       }
 
       // 음소거 명령
@@ -876,14 +861,6 @@ client.login(TOKEN);
  * - 초성체(ㄱㅅ, ㅇㅈ 등)를 풀어서 변환
  * - 특수문자 제거
  */
-// function parseMessage(messageContent: string): string {
-//   // URL 제거
-//   const urlRegex = /(https?:\/\/[^\s]+)/g;
-//   let cleanMessage = messageContent.replace(urlRegex, "링크");
-
-//   return cleanMessage;
-// }
-
 function parseMessage(messageContent: string): string {
   const truncateToLimit = (text: string) =>
     Array.from(text).slice(0, TTS_LIMIT).join("");
@@ -1060,21 +1037,6 @@ function parseMessage(messageContent: string): string {
     .replace(regㅊㅊ, "축축")
     .replace(regㅋ, "크")
     .replace(regㅎ, "흐");
-
-  /**
-   * HTML 엔티티 인코딩 (현재 비활성화)
-   */
-  // const gtReg = /[>]/gi;
-  // const ltReg = /[<]/gi;
-  // const ampReg = /[&]/gi;
-  // const quoteReg = /["]/gi;
-  // const aposReg = /[']/gi;
-
-  // messageContent = messageContent.replace(gtReg, "&gt;");
-  // messageContent = messageContent.replace(ltReg, "&lt;");
-  // messageContent = messageContent.replace(ampReg, "&amp;");
-  // messageContent = messageContent.replace(quoteReg, "&quot;");
-  // messageContent = messageContent.replace(aposReg, "&apos;");
 
   // 공백 정리 + 앞뒤 trim (치환 과정에서 공백이 누적되는 경우가 많음)
   messageContent = messageContent.replace(/\s+/g, " ").trim();

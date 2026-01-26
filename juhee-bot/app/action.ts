@@ -7,9 +7,11 @@
 import {
   ChatInputCommandInteraction,
   DiscordAPIError,
+  EmbedBuilder,
   GuildMember,
   Interaction,
   Message,
+  MessageActionRowComponentBuilder,
   MessageFlags,
   PartialGroupDMChannel,
   VoiceBasedChannel,
@@ -72,7 +74,7 @@ export default class Action {
       if (!this.interaction.guildId) return;
 
       const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
-        this.interaction.guildId
+        this.interaction.guildId,
       );
       if (!voiceConnection) {
         await this.reply("음성채널에 연결되어 있지 않습니다");
@@ -98,7 +100,7 @@ export default class Action {
             ? this.interaction.guild?.name
             : (this.interaction as ChatInputCommandInteraction).guild?.name;
         logger.info(
-          `🚪 음성 채널 퇴장: 서버 '${guildName}' (ID: ${this.interaction.guildId})`
+          `🚪 음성 채널 퇴장: 서버 '${guildName}' (ID: ${this.interaction.guildId})`,
         );
         return;
       }
@@ -109,7 +111,7 @@ export default class Action {
           : (this.interaction as ChatInputCommandInteraction).guild?.name;
       logger.error(
         `❌ 음성 채널 퇴장 실패: 서버 '${guildName}' (ID: ${this.interaction?.guildId})`,
-        error
+        error,
       );
       await this.reply("음성채널 나가기 중 오류가 발생했습니다.");
     }
@@ -143,7 +145,7 @@ export default class Action {
       }
 
       const voiceConnection: VoiceConnection | undefined = getVoiceConnection(
-        this.interaction.guildId
+        this.interaction.guildId,
       );
       if (
         !voiceConnection ||
@@ -164,12 +166,12 @@ export default class Action {
         this.setupVoiceConnectionHandlers(
           connection,
           voiceChannel,
-          audioPlayer
+          audioPlayer,
         );
 
         await this.reply("음성 채널 접속 성공");
         logger.info(
-          `🔊 음성 채널 입장: 서버 '${voiceChannel.guild.name}' (ID: ${this.interaction.guildId}) | 채널: '${voiceChannel.name}' (ID: ${voiceChannel.id})`
+          `🔊 음성 채널 입장: 서버 '${voiceChannel.guild.name}' (ID: ${this.interaction.guildId}) | 채널: '${voiceChannel.name}' (ID: ${voiceChannel.id})`,
         );
         return true;
       } else {
@@ -177,7 +179,7 @@ export default class Action {
         this.setupVoiceConnectionHandlers(
           voiceConnection,
           voiceChannel,
-          audioPlayer
+          audioPlayer,
         );
         await this.reply("이미 접속 되어 있습니다");
         return true;
@@ -189,7 +191,7 @@ export default class Action {
           : (this.interaction as ChatInputCommandInteraction).guild?.name;
       logger.error(
         `❌ 음성 채널 입장 실패: 서버 '${guildName}' (ID: ${this.interaction?.guildId})`,
-        error
+        error,
       );
       await this.reply("음성채널 접속 중 오류가 발생했습니다.");
       return false;
@@ -213,7 +215,7 @@ export default class Action {
     connection: VoiceConnection,
     voiceChannel: VoiceBasedChannel,
     audioPlayer: AudioPlayer,
-    retryCount: number = 0
+    retryCount: number = 0,
   ) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 5000; // 5초
@@ -224,26 +226,26 @@ export default class Action {
       async (oldState, newState) => {
         try {
           logger.warn(
-            `🔌 음성 연결 끊김: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id}) | 채널: '${voiceChannel.name}'`
+            `🔌 음성 연결 끊김: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id}) | 채널: '${voiceChannel.name}'`,
           );
 
           // 재연결 시도 (최대 5초 대기)
           await Promise.race([
             connection.configureNetworking(),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("ETIMEDOUT")), 5000)
+              setTimeout(() => reject(new Error("ETIMEDOUT")), 5000),
             ),
           ]);
 
           logger.info(
-            `🔌 음성 연결 복구됨: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`
+            `🔌 음성 연결 복구됨: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`,
           );
         } catch (error) {
           logger.error(
             `🔌 음성 연결 재시도 중: 서버 '${voiceChannel.guild.name}' (${
               retryCount + 1
             }/${MAX_RETRIES})`,
-            error
+            error,
           );
 
           if (retryCount < MAX_RETRIES) {
@@ -252,11 +254,11 @@ export default class Action {
               this.reconnectVoiceChannel(
                 voiceChannel,
                 audioPlayer,
-                retryCount + 1
+                retryCount + 1,
               ).catch((err) => {
                 logger.error(
                   `🔌 재연결 중 예외 발생: 서버 '${voiceChannel.guild.name}'`,
-                  err
+                  err,
                 );
               });
             }, RETRY_DELAY);
@@ -265,13 +267,13 @@ export default class Action {
             connection.destroy();
           }
         }
-      }
+      },
     );
 
     // 연결 준비 완료 상태
     connection.on(VoiceConnectionStatus.Ready, () => {
       logger.info(
-        `🔌 음성 연결 준비 완료: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`
+        `🔌 음성 연결 준비 완료: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`,
       );
     });
 
@@ -280,7 +282,7 @@ export default class Action {
       try {
         logger.error(
           `🔌 음성 연결 오류: 서버 '${voiceChannel.guild.name}' (ID: ${voiceChannel.guild.id})`,
-          error
+          error,
         );
 
         // 타임아웃 에러의 경우 재연결 시도
@@ -288,17 +290,17 @@ export default class Action {
           logger.warn(
             `🔌 타임아웃 오류, 재연결 시도: 서버 '${
               voiceChannel.guild.name
-            }' (${retryCount + 1}/${MAX_RETRIES})`
+            }' (${retryCount + 1}/${MAX_RETRIES})`,
           );
           setTimeout(() => {
             this.reconnectVoiceChannel(
               voiceChannel,
               audioPlayer,
-              retryCount + 1
+              retryCount + 1,
             ).catch((err) => {
               logger.error(
                 `🔌 재연결 중 예외 발생: 서버 '${voiceChannel.guild.name}'`,
-                err
+                err,
               );
             });
           }, RETRY_DELAY);
@@ -308,7 +310,7 @@ export default class Action {
       } catch (handlerError) {
         logger.error(
           `🔌 에러 핸들러 내부 오류: 서버 '${voiceChannel.guild.name}'`,
-          handlerError
+          handlerError,
         );
       }
     });
@@ -317,7 +319,7 @@ export default class Action {
     connection.on("stateChange", (oldState, newState) => {
       try {
         logger.debug(
-          `🔌 음성 연결 상태 변경: ${oldState.status} -> ${newState.status} (서버: '${voiceChannel.guild.name}')`
+          `🔌 음성 연결 상태 변경: ${oldState.status} -> ${newState.status} (서버: '${voiceChannel.guild.name}')`,
         );
       } catch (stateChangeError) {
         logger.error("🔌 상태 변경 로깅 오류:", stateChangeError);
@@ -341,7 +343,7 @@ export default class Action {
   private async reconnectVoiceChannel(
     voiceChannel: VoiceBasedChannel,
     audioPlayer: AudioPlayer,
-    retryCount: number = 0
+    retryCount: number = 0,
   ) {
     try {
       // 채널 존재 여부 및 접근 가능 여부 확인
@@ -350,7 +352,7 @@ export default class Action {
         const refreshedChannel = await guild.channels.fetch(voiceChannel.id);
         if (!refreshedChannel || !refreshedChannel.isVoiceBased()) {
           logger.warn(
-            `🔌 음성 채널이 삭제되었거나 접근할 수 없음: 서버 '${guild.name}' | 채널 ID: ${voiceChannel.id}`
+            `🔌 음성 채널이 삭제되었거나 접근할 수 없음: 서버 '${guild.name}' | 채널 ID: ${voiceChannel.id}`,
           );
           return; // 재연결 중단
         }
@@ -365,20 +367,20 @@ export default class Action {
         const permissions = refreshedChannel.permissionsFor(guild.members.me);
         if (!permissions?.has(["Connect", "Speak"])) {
           logger.warn(
-            `🔌 음성 채널 접근 권한 없음: 서버 '${guild.name}' | 채널: '${refreshedChannel.name}'`
+            `🔌 음성 채널 접근 권한 없음: 서버 '${guild.name}' | 채널: '${refreshedChannel.name}'`,
           );
           return; // 재연결 중단
         }
       } catch (fetchError) {
         logger.error(
           `🔌 채널 정보 가져오기 실패: 서버 '${guild.name}' | 채널 ID: ${voiceChannel.id}`,
-          fetchError
+          fetchError,
         );
         return; // 재연결 중단
       }
 
       logger.info(
-        `🔌 음성 채널 재연결 시도: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}' (${retryCount}번째 시도)`
+        `🔌 음성 채널 재연결 시도: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}' (${retryCount}번째 시도)`,
       );
 
       // 기존 연결 정리
@@ -406,7 +408,7 @@ export default class Action {
           setTimeout(() => resolve(conn), 2000);
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Connection timeout")), 10000)
+          setTimeout(() => reject(new Error("Connection timeout")), 10000),
         ),
       ]);
 
@@ -415,26 +417,33 @@ export default class Action {
         connection,
         voiceChannel,
         audioPlayer,
-        retryCount
+        retryCount,
       );
 
       logger.info(
-        `🔌 음성 채널 재연결 성공: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}'`
+        `🔌 음성 채널 재연결 성공: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}'`,
       );
     } catch (error) {
       logger.error(
         `🔌 음성 채널 재연결 실패: 서버 '${voiceChannel.guild.name}' | 채널: '${voiceChannel.name}' (${retryCount}번째 시도)`,
-        error
+        error,
       );
 
       // 최대 재시도 횟수에 도달하지 않았다면 다시 시도
       if (retryCount < 3) {
-        setTimeout(() => {
-          this.reconnectVoiceChannel(voiceChannel, audioPlayer, retryCount + 1);
-        }, 5000 * (retryCount + 1)); // 점진적으로 대기 시간 증가 (5초, 10초, 15초)
+        setTimeout(
+          () => {
+            this.reconnectVoiceChannel(
+              voiceChannel,
+              audioPlayer,
+              retryCount + 1,
+            );
+          },
+          5000 * (retryCount + 1),
+        ); // 점진적으로 대기 시간 증가 (5초, 10초, 15초)
       } else {
         logger.error(
-          `🔌 최대 재연결 시도 횟수 도달, 재연결 포기: 서버 '${voiceChannel.guild.name}'`
+          `🔌 최대 재연결 시도 횟수 도달, 재연결 포기: 서버 '${voiceChannel.guild.name}'`,
         );
       }
     }
@@ -447,7 +456,7 @@ export default class Action {
    * @param msg - 전송할 메시지 내용
    * @throws {Error} 메시지 전송 중 오류 발생 시
    */
-  async send(msg: string): Promise<void> {
+  async send(msg: string, msg2?: string): Promise<void> {
     try {
       if (!this.interaction) return;
       if (!this.interaction.channel) {
@@ -467,7 +476,8 @@ export default class Action {
       if (server.dataValues.isMuted) return;
 
       try {
-        await this.interaction.channel.send(msg);
+        const embed = createEmbedMessage(msg, msg2);
+        await this.interaction.channel.send({ embeds: [embed] });
       } catch (err) {
         // 권한 없음 오류(50013) 처리
         if (err instanceof DiscordAPIError && err.code === 50013) {
@@ -511,11 +521,12 @@ export default class Action {
    * @param msg - 전송할 메시지 내용
    * @throws {Error} 응답 수정 중 오류 발생 시
    */
-  async editReply(msg: string): Promise<void> {
+  async editReply(msg: string, msg2?: string): Promise<void> {
     try {
       if (!this.interaction) return;
       if (this.interaction instanceof Message) return;
       if (!this.interaction.isChatInputCommand()) return;
+      if (!this.interaction.deferred) return;
 
       const server: DATA | null = await Servers.findOne({
         where: { id: this.interaction.guildId },
@@ -525,19 +536,15 @@ export default class Action {
         return;
       }
 
-      // if (server.dataValues.isMuted) {
-      //   await this.deleteReply();
-      //   return;
-      // }
-
+      const embed = createEmbedMessage(msg, msg2);
       await this.interaction.editReply({
-        content: msg,
+        embeds: [embed],
       });
       logger.debug("✅ 유예된 응답 수정 완료");
     } catch (error) {
       logger.error("응답 수정 실패:", error);
       // 편집 실패 시 일반 메시지로 대체 전송
-      await this.send(msg);
+      await this.send(msg, msg2);
     }
   }
 
@@ -567,7 +574,7 @@ export default class Action {
    * @param msg - 전송할 메시지 내용
    * @throws {Error} 응답 전송 중 오류 발생 시
    */
-  async reply(msg: string): Promise<void> {
+  async reply(msg: string, msg2?: string): Promise<void> {
     try {
       if (!this.interaction) return;
       if (
@@ -588,21 +595,25 @@ export default class Action {
 
       if (this.isReplied) {
         if (server.dataValues.isMuted) return;
-        await this.send(msg);
+        await this.send(msg, msg2);
         return;
       }
 
       // 첫 응답 시도
       try {
         if (this.interaction instanceof ChatInputCommandInteraction) {
+          const embed = createEmbedMessage(msg, msg2);
           await this.interaction.reply({
-            content: msg,
+            embeds: [embed],
             flags: server.dataValues.isMuted
               ? MessageFlags.Ephemeral
               : undefined,
           });
         } else if (!server.dataValues.isMuted) {
-          await this.interaction.reply(msg);
+          const embed = createEmbedMessage(msg, msg2);
+          await this.interaction.reply({
+            embeds: [embed],
+          });
         }
         this.isReplied = true;
       } catch (err) {
@@ -615,7 +626,8 @@ export default class Action {
               this.interaction.channel &&
               !(this.interaction.channel instanceof PartialGroupDMChannel)
             ) {
-              await this.interaction.channel.send(msg);
+              const embed = createEmbedMessage(msg, msg2);
+              await this.interaction.channel.send({ embeds: [embed] });
               this.isReplied = true;
             } else {
               logger.error("대체 전송할 적절한 채널 없음");
@@ -635,8 +647,8 @@ export default class Action {
   // await guildData.action.editReply(`tts 채널이 설정되지 않았습니다.`);
 
   /**
-    * tts 채널이 설정되지 않았습니다.
-    */
+   * tts 채널이 설정되지 않았습니다.
+   */
   async ttsChannelNotSet(): Promise<void> {
     await this.editReply(`tts 채널이 설정되지 않았습니다.`);
   }
@@ -647,73 +659,19 @@ export default class Action {
   async userNotRegistered(): Promise<void> {
     await this.editReply(`유저가 등록되지 않았습니다.`);
   }
+}
 
-  /**
-   * 음성 인식 및 STT 처리 (현재 비활성화)
-   * Discord 음성을 인식하여 텍스트로 변환하는 기능
-   */
-  // listen() {
-  // 	const opusEncoder = new OpusEncoder.OpusEncoder( 16000, 1 );
-
-  // 	const userId = this.agent.member.user.id;
-  // 	const guildId = this.agent.guildId;
-  // 	const endBehavior = {
-  // 		behavior: EndBehaviorType.AfterSilence,
-  // 		duration: 100
-  // 	};
-  // 	const userName = this.agent.member.user.username;
-
-  // 	// 100ms 동안 userId의 소리가 안날때까지 voiceConnection 유지
-  // 	const audio = getVoiceConnection(guildId).receiver.subscribe(userId, { end: endBehavior });
-
-  // 	console.log(`Played user: ${userName}`);
-  // 	this.reply('듣는중...');
-
-  // 	// 오디오 청크 저장
-  // 	let sizeOfBuffer = 0;
-  // 	let buffer = [];
-  // 	audio.on('data', chunk => {
-  // 		let decodedChunk = opusEncoder.decode(chunk);	// 청크 디코딩
-  // 		sizeOfBuffer += decodedChunk.length;			// 버퍼 크기 수정
-  // 		buffer.push(decodedChunk);						// 버퍼 저장
-  // 	});
-
-  // 	// 오디오 입력 종료
-  // 	audio.on('end', async () => {
-  // 		console.log(`Buffer Size: ${sizeOfBuffer}`);				// 버퍼 크기 출력
-  // 		const mergedBuffer = Buffer.concat(buffer, sizeOfBuffer);	// 버퍼 병합
-  // 		// console.log(mergedBuffer.toString('base64') + '\n');
-  // 		// this.agent.reply('저장중');
-
-  // 		try {
-  // 			// STT엔진 호출, msg에 메세지 저장
-  // 			const msg = await reqSTT(mergedBuffer);
-
-  // 			// 메세지 파싱, 해당 명령 실행
-  // 			switch(msg) {
-  // 				// 날씨 이미지 API 호출
-  // 				case '이미지':
-  // 					this.send(await GetWeatherImage());
-  // 					break;
-
-  // 				// 음성 채널 나가기
-  // 				case '나가':
-  // 				case '나가.':
-  // 				case '주희야 나가':
-  // 					this.exitVoiceChannel();
-  // 					break;
-
-  // 				// 없는 명령어
-  // 				default:
-  // 					const tmp = blockQuote(msg);
-  // 					this.reply(`${tmp}\n잘못들었습니다?`);
-  // 					break;
-  // 			}
-  // 		} catch(e) {
-  // 			console.log(e.toString());
-  // 			this.reply(e.toString());
-  // 			return;
-  // 		}
-  // 	});
-  // }
+export function createEmbedMessage(title: string, description?: string): EmbedBuilder {
+  const embed = new EmbedBuilder()
+      .setColor("#9A8ED7")
+      .setTitle(title)
+      .setFooter({
+        text: "주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.",
+        iconURL:
+          "https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true",
+      });
+  if (description) {
+    embed.setDescription(description);
+  }
+  return embed;
 }

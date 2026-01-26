@@ -7,6 +7,9 @@
 import sdk from "microsoft-cognitiveservices-speech-sdk";
 import { __dirname } from "./const.js";
 import { PassThrough } from "stream";
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
 import {
   TextAnalyticsClient,
   AzureKeyCredential,
@@ -25,6 +28,284 @@ const SPEECH_REGION: string = process.env.SPEECH_REGION ?? "";
 
 /** 기본 TTS 음성 */
 const DEFAULT_VOICE: string = "SeoHyeonNeural";
+
+type TtsCacheStats = {
+  hits: number;
+  misses: number;
+  inflightWaits: number;
+  errors: number;
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __juheeTtsCacheStats: TtsCacheStats | undefined;
+}
+
+function getTtsCacheStats(): TtsCacheStats {
+  if (!globalThis.__juheeTtsCacheStats) {
+    globalThis.__juheeTtsCacheStats = {
+      hits: 0,
+      misses: 0,
+      inflightWaits: 0,
+      errors: 0,
+    };
+  }
+  return globalThis.__juheeTtsCacheStats;
+}
+
+function getShardIdForStats(): string {
+  // discord.js ShardingManager가 환경변수로 SHARD_ID를 주는 케이스가 많음
+  const shardId = process.env.SHARD_ID;
+  if (shardId && shardId.trim().length > 0) return shardId.trim();
+
+  // 일부 환경에선 SHARDS="0,1" 같은 형태로 제공될 수 있음
+  const shards = process.env.SHARDS;
+  if (shards && shards.trim().length > 0) {
+    const first = shards.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  return "single";
+}
+
+function getStatsFilePath(): string {
+  if (process.env.TTS_STATS_FILE && process.env.TTS_STATS_FILE.trim().length) {
+    return path.resolve(process.env.TTS_STATS_FILE);
+  }
+  const shardId = getShardIdForStats();
+  return path.join(TTS_CACHE_DIR, `tts-stats-${shardId}.json`);
+}
+
+let statsLoaded = false;
+function loadPersistedStatsOnce() {
+  if (statsLoaded) return;
+  statsLoaded = true;
+
+  try {
+    ensureCacheDir();
+    if (!cacheDirReady) return;
+
+    const statsPath = getStatsFilePath();
+    if (!fs.existsSync(statsPath)) return;
+
+    const raw = fs.readFileSync(statsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const stats = getTtsCacheStats();
+    stats.hits = Number(parsed?.hits ?? stats.hits) || 0;
+    stats.misses = Number(parsed?.misses ?? stats.misses) || 0;
+    stats.inflightWaits = Number(parsed?.inflightWaits ?? stats.inflightWaits) || 0;
+    stats.errors = Number(parsed?.errors ?? stats.errors) || 0;
+  } catch (e) {
+    logger.warn("⚠️ TTS 캐시 통계 로드 실패:", e);
+  }
+}
+
+let flushTimer: NodeJS.Timeout | null = null;
+let lastFlushAt = 0;
+
+async function flushStatsToDisk() {
+  try {
+    ensureCacheDir();
+    if (!cacheDirReady) return;
+
+    const stats = getTtsCacheStats();
+    const statsPath = getStatsFilePath();
+    const payload = {
+      hits: stats.hits,
+      misses: stats.misses,
+      inflightWaits: stats.inflightWaits,
+      errors: stats.errors,
+      updatedAt: new Date().toISOString(),
+      pid: process.pid,
+    };
+
+    const tmpPath = `${statsPath}.tmp-${process.pid}-${Date.now()}`;
+    await fs.promises.writeFile(tmpPath, JSON.stringify(payload));
+    await fs.promises.rename(tmpPath, statsPath);
+    lastFlushAt = Date.now();
+  } catch (e) {
+    logger.warn("⚠️ TTS 캐시 통계 저장 실패:", e);
+  }
+}
+
+function scheduleStatsFlush() {
+  // 너무 자주 쓰지 않도록 최소 간격 + 디바운스
+  const MIN_INTERVAL_MS = 5000;
+  const DEBOUNCE_MS = 1000;
+  const now = Date.now();
+  const waitMs = Math.max(DEBOUNCE_MS, MIN_INTERVAL_MS - (now - lastFlushAt));
+
+  if (flushTimer) return;
+  flushTimer = setTimeout(async () => {
+    flushTimer = null;
+    await flushStatsToDisk();
+  }, waitMs);
+}
+
+/**
+ * TTS 오디오 캐시 디렉토리
+ *
+ * @remarks
+ * - 기본값은 프로젝트 실행 경로 기준 `.ttsCache`
+ * - 환경변수 `TTS_CACHE_DIR`로 변경 가능
+ */
+const TTS_CACHE_DIR: string = process.env.TTS_CACHE_DIR
+  ? path.resolve(process.env.TTS_CACHE_DIR)
+  : path.join(process.cwd(), ".ttsCache");
+
+/** 캐시 파일 최대 보관 기간 (일). 0 이하면 만료 체크 안 함 */
+const TTS_CACHE_MAX_AGE_DAYS: number = (() => {
+  const raw = process.env.TTS_CACHE_MAX_AGE_DAYS ?? "30";
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : 30;
+})();
+
+/** 동일 요청 동시 합성 중복 방지 */
+const inFlightSynthesis: Map<string, Promise<Buffer>> = new Map();
+
+let cacheDirReady = false;
+
+function ensureCacheDir() {
+  if (cacheDirReady) return;
+  try {
+    fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
+    cacheDirReady = true;
+  } catch (e) {
+    // 캐시 디렉토리 생성 실패 시에도 TTS는 계속 동작해야 함
+    logger.warn("⚠️ TTS 캐시 디렉토리 생성 실패:", e);
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("websocket error") ||
+    m.includes("internal server error") ||
+    m.includes("1011")
+  );
+}
+
+function bufferToStream(buffer: Buffer): PassThrough {
+  const stream = new PassThrough();
+  stream.end(buffer);
+  return stream;
+}
+
+function fileToStream(filePath: string): PassThrough {
+  const stream = new PassThrough();
+  const rs = fs.createReadStream(filePath);
+  rs.on("error", (e) => stream.destroy(e));
+  rs.pipe(stream);
+  return stream;
+}
+
+function sha256Hex(input: string): string {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+async function isCacheValid(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (TTS_CACHE_MAX_AGE_DAYS <= 0) return true;
+    const maxAgeMs = TTS_CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    const ageMs = Date.now() - stat.mtimeMs;
+    if (ageMs <= maxAgeMs) return true;
+    await fs.promises.unlink(filePath).catch(() => undefined);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function writeCacheAtomic(filePath: string, data: Buffer) {
+  try {
+    ensureCacheDir();
+    if (!cacheDirReady) return;
+    // 이미 파일이 있으면 덮어쓰지 않음
+    if (fs.existsSync(filePath)) return;
+
+    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    await fs.promises.writeFile(tmpPath, data);
+    await fs.promises.rename(tmpPath, filePath);
+  } catch (e) {
+    logger.warn("⚠️ TTS 캐시 저장 실패:", e);
+  }
+}
+
+async function synthesizeSsmlToBufferWithRetry(
+  speechConfig: sdk.SpeechConfig,
+  ssml: string,
+  maxRetries: number
+): Promise<Buffer> {
+  let attempt = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      const buffer = await new Promise<Buffer>((resolve, reject) => {
+        const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
+        synthesizer.speakSsmlAsync(
+          ssml,
+          (result) => {
+            try {
+              synthesizer.close();
+              if (result.errorDetails) {
+                const errorMessage = result.errorDetails?.toString() || "";
+                const error = new Error(errorMessage);
+                (error as any).retriable = isRetriableErrorMessage(errorMessage);
+                reject(error);
+                return;
+              }
+              const audioData = result.audioData;
+              if (!audioData) {
+                reject(new Error("Empty audioData"));
+                return;
+              }
+              resolve(Buffer.from(audioData));
+            } catch (e) {
+              try {
+                synthesizer.close();
+              } catch {
+                // ignore
+              }
+              reject(e);
+            }
+          },
+          (error) => {
+            try {
+              synthesizer.close();
+            } catch {
+              // ignore
+            }
+            const errorMessage = error?.toString() || "";
+            const err = new Error(errorMessage);
+            (err as any).retriable = isRetriableErrorMessage(errorMessage);
+            reject(err);
+          }
+        );
+      });
+
+      return buffer;
+    } catch (e: any) {
+      const retriable = Boolean(e?.retriable);
+      const message = e?.message?.toString?.() ?? String(e);
+
+      if (retriable && attempt < maxRetries) {
+        attempt += 1;
+        logger.debug(`⚠️ TTS 재시도 (${attempt}/${maxRetries})`);
+        await delay(1000 * attempt);
+        continue;
+      }
+
+      logger.error("❌ TTS 합성 오류:", message);
+      throw e;
+    }
+  }
+}
 
 /** Azure Language API 키 (언어 감지용, 현재 미사용) */
 const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
@@ -61,8 +342,11 @@ async function msTTS(
   retryCount: number = 0
 ) {
   const MAX_RETRIES = 2;
+  const stats = getTtsCacheStats();
   
   try {
+    loadPersistedStatsOnce();
+
     if (!SPEECH_KEY || !SPEECH_REGION) {
       logger.error("Speech API credentials not configured");
       if (typeof callback === 'function') {
@@ -74,6 +358,8 @@ async function msTTS(
       }
       return;
     }
+
+    ensureCacheDir();
 
     const speechConfig = sdk.SpeechConfig.fromSubscription(
       SPEECH_KEY,
@@ -104,7 +390,6 @@ async function msTTS(
         break;
     }
 
-    // speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Riff48Khz16BitMonoPcm;
     speechConfig.speechSynthesisOutputFormat =
       sdk.SpeechSynthesisOutputFormat.Ogg24Khz16BitMonoOpus;
     speechConfig.speechSynthesisLanguage = language;
@@ -116,124 +401,85 @@ async function msTTS(
       <prosody rate="+${speed ?? 30}%">${textData}</prosody>
     </voice>
   </speak>`;
+    const cacheKey = sha256Hex(
+      JSON.stringify({
+        v: 1,
+        format: "Ogg24Khz16BitMonoOpus",
+        language,
+        voice,
+        speed,
+        textData
+      })
+    );
+    const cacheFilePath = path.join(TTS_CACHE_DIR, `${cacheKey}.ogg`);
 
-    // console.log(ssml);
-
-    speechSynthesizer.speakSsmlAsync(
-      ssml,
-      (result) => {
+    // 캐시 히트
+    if (cacheDirReady && (await isCacheValid(cacheFilePath))) {
+      logger.debug(`💾 TTS 캐시 히트: ${cacheKey}`);
+      stats.hits += 1;
+      scheduleStatsFlush();
+      if (typeof callback === "function") {
         try {
-          speechSynthesizer.close();
-
-          if (result.errorDetails) {
-            logger.error("❌ TTS 합성 오류:", result.errorDetails);
-            
-            // websocket 에러나 내부 서버 에러의 경우 재시도
-            const errorMessage = result.errorDetails?.toString() || '';
-            const isRetriableError = errorMessage.includes('websocket error') || 
-                                    errorMessage.includes('Internal server error') ||
-                                    errorMessage.includes('1011');
-            
-            if (isRetriableError && retryCount < MAX_RETRIES) {
-              logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
-              setTimeout(() => {
-                msTTS(textData, callback, voiceName, speed, retryCount + 1);
-              }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
-            } else {
-              // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
-              logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
-              if (typeof callback === 'function') {
-                try {
-                  callback(null); // null을 전달하여 오디오가 없음을 알림
-                } catch (callbackError) {
-                  logger.error("❌ TTS 오류 콜백 실패:", callbackError);
-                }
-              }
-            }
-            return;
-          }
-
-          const { audioData } = result;
-          if (!audioData) {
-            logger.debug(`⚠️ TTS audioData 비어있음`);
-            // 오디오 데이터가 없어도 콜백을 호출
-            if (typeof callback === 'function') {
-              try {
-                callback(null);
-              } catch (callbackError) {
-                logger.error("❌ 빈 audioData 콜백 실패:", callbackError);
-              }
-            }
-            return;
-          }
-
-          // convert arrayBuffer to stream
-          const bufferStream = new PassThrough();
-          bufferStream.end(Buffer.from(audioData));
-          if (typeof callback === 'function') {
-            try {
-              callback(bufferStream);
-            } catch (callbackError) {
-              logger.error("❌ TTS 스트림 콜백 실패:", callbackError);
-            }
-          }
+          callback(fileToStream(cacheFilePath));
         } catch (callbackError) {
-          logger.error("❌ TTS 콜백 처리 오류:", callbackError);
-          // 콜백 에러가 발생해도 안전하게 처리
-          try {
-            if (typeof callback === 'function') {
-              callback(null);
-            }
-          } catch (safeCallbackError) {
-            logger.error("❌ 안전 콜백 처리 오류:", safeCallbackError);
-          }
-        }
-      },
-      (error) => {
-        logger.error("❌ TTS 합성 실패:", error);
-        speechSynthesizer.close();
-        
-        // websocket 에러나 내부 서버 에러의 경우 재시도
-        const errorMessage = error?.toString() || '';
-        const isRetriableError = errorMessage.includes('websocket error') || 
-                                errorMessage.includes('Internal server error') ||
-                                errorMessage.includes('1011');
-        
-        if (isRetriableError && retryCount < MAX_RETRIES) {
-          logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
-          setTimeout(() => {
-            msTTS(textData, callback, voiceName, speed, retryCount + 1);
-          }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
-        } else {
-          // 재시도 불가능하거나 재시도 횟수 초과 시 콜백 호출
-          logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
-          if (typeof callback === 'function') {
-            try {
-              callback(null);
-            } catch (callbackError) {
-              logger.error("❌ 합성 실패 콜백 오류:", callbackError);
-            }
-          }
+          logger.error("❌ TTS 캐시 스트림 콜백 실패:", callbackError);
         }
       }
-    );
+      return;
+    }
+
+    // 동일 키 동시 요청은 한 번만 합성
+    let synthesisPromise = inFlightSynthesis.get(cacheKey);
+    if (!synthesisPromise) {
+      stats.misses += 1;
+      scheduleStatsFlush();
+      synthesisPromise = (async () => {
+        const buffer = await synthesizeSsmlToBufferWithRetry(
+          speechConfig,
+          ssml,
+          MAX_RETRIES
+        );
+        await writeCacheAtomic(cacheFilePath, buffer);
+        return buffer;
+      })();
+      inFlightSynthesis.set(cacheKey, synthesisPromise);
+    } else {
+      stats.inflightWaits += 1;
+      scheduleStatsFlush();
+    }
+
+    try {
+      const buffer = await synthesisPromise;
+      if (typeof callback === "function") {
+        try {
+          callback(bufferToStream(buffer));
+        } catch (callbackError) {
+          logger.error("❌ TTS 스트림 콜백 실패:", callbackError);
+        }
+      }
+    } catch (e) {
+      stats.errors += 1;
+      scheduleStatsFlush();
+      throw e;
+    } finally {
+      // 완료/실패 상관없이 in-flight 제거
+      if (inFlightSynthesis.get(cacheKey) === synthesisPromise) {
+        inFlightSynthesis.delete(cacheKey);
+      }
+    }
+
+    return;
   } catch (error) {
     logger.error("❌ TTS 초기화 실패:", error);
-    
-    // 재시도 로직
-    if (retryCount < MAX_RETRIES) {
-      logger.debug(`⚠️ TTS 재시도 (${retryCount + 1}/${MAX_RETRIES})`);
-      setTimeout(() => {
-        msTTS(textData, callback, voiceName, speed, retryCount + 1);
-      }, 1000 * (retryCount + 1)); // 1초, 2초 간격으로 재시도
-    } else {
-      logger.debug(`❌ TTS 재시도 한계 도달 (${retryCount}/${MAX_RETRIES})`);
-      if (typeof callback === 'function') {
-        try {
-          callback(null);
-        } catch (callbackError) {
-          logger.error("❌ 최종 실패 콜백 오류:", callbackError);
-        }
+    stats.errors += 1;
+    scheduleStatsFlush();
+
+    // 합성 재시도는 synthesizeSsmlToBufferWithRetry에서 처리.
+    if (typeof callback === "function") {
+      try {
+        callback(null);
+      } catch (callbackError) {
+        logger.error("❌ 최종 실패 콜백 오류:", callbackError);
       }
     }
   }

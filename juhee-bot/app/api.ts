@@ -27,6 +27,8 @@ import { Console } from "node:console";
 import { Transform } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
+import { create } from "node:domain";
+import { createEmbedMessage } from "./action.js";
 
 const ts: Transform = new Transform({
   transform(chunk, _enc, cb) {
@@ -294,16 +296,7 @@ export default class HttpServer {
           password.startsWith("password=") &&
           password.split("=")[1] === REQUEST_PASSWORD
         ) {
-          const embed = new EmbedBuilder()
-            .setColor("#9A8ED7")
-            .setTitle(title)
-            .setDescription(postData)
-            .setFooter({
-              text: "주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.",
-              iconURL:
-                "https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true",
-            });
-
+          const embed = createEmbedMessage(postData);
           await this.notice(embed);
         }
         res.writeHead(200, { "Content-Type": "text/html" });
