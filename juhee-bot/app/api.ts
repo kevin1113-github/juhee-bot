@@ -296,7 +296,7 @@ export default class HttpServer {
           password.startsWith("password=") &&
           password.split("=")[1] === REQUEST_PASSWORD
         ) {
-          const embed = createEmbedMessage(postData);
+          const embed = createEmbedMessage(title, postData);
           await this.notice(embed);
         }
         res.writeHead(200, { "Content-Type": "text/html" });
