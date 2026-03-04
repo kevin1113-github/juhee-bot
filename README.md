@@ -2,6 +2,8 @@
 
 # 주희봇 (juhee-bot)
 
+<img width="291" height="96" alt="image" src="https://github.com/user-attachments/assets/7b5d9463-f692-4689-a250-c577a90f0064" />
+
 <img src="./juhee-profile.png" width="30%" />
 
 ## 📌 소개
