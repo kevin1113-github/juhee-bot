@@ -9,10 +9,10 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { ShardingManager } from "discord.js";
+import fs from "node:fs";
+import path from "path";
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
-import path from "path";
-import fs from "node:fs";
 
 /** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
@@ -43,6 +43,21 @@ if (KOREANBOTS_TOKEN) {
   );
 }
 
+const extension = process.argv.reduce((ext, arg) => {
+  if (arg.endsWith(".ts")) return "ts";
+  if (arg.endsWith(".js")) return "js";
+  return ext;
+}, "js");
+
+// tsx watch(개발 모드)로 실행 중이면 샤드 프로세스에도 동일 로더를 주입한다.
+const shardExecArgv = extension === "ts" ? ["--import", "tsx"] : [];
+logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+logger.info(`🚀 주희봇 샤드 매니저 시작 중...`);
+logger.info(`   🔷 Node.js 버전: ${process.version}`);
+logger.info(`   🔷 process.argv: ${process.argv.join(" ")}`);
+logger.info(`   🔷 실행 파일 확장자: .${extension}`);
+logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
 /**
  * 샤드 매니저 설정
  *
@@ -51,12 +66,12 @@ if (KOREANBOTS_TOKEN) {
  * - 수동으로 설정하려면 숫자를 입력 (예: 2, 4, 8 등)
  * - 각 샤드는 약 1,000~2,500개 서버를 처리할 수 있음
  */
-const manager = new ShardingManager(path.join(__dirname, "bot.js"), {
+const manager = new ShardingManager(path.join(__dirname, `bot.${extension}`), {
   token: TOKEN,
   totalShards: "auto", // 'auto' 또는 특정 숫자 (예: 2, 4, 8)
   respawn: true, // 샤드 크래시 시 자동 재시작
   shardArgs: [], // 각 샤드에 전달할 추가 인자
-  execArgv: [], // Node.js 실행 옵션
+  execArgv: shardExecArgv, // Node.js 실행 옵션
 });
 
 /**

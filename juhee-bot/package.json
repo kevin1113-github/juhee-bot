@@ -7,10 +7,11 @@
     "lib": "lib"
   },
   "scripts": {
-    "build": "tsc",
     "start": "npm run build && npm run pm2:start",
-    "reload": "npm run build && npm run pm2:reload",
     "stop": "npm run pm2:delete",
+    "dev": "tsx watch ./app/index.ts",
+    "build": "tsc",
+    "reload": "npm run build && npm run pm2:reload",
     "updateCommands": "node ./.cache/app/updateCommands.js",
     "deleteAllCommands": "node ./.cache/app/deleteAllCommands.js",
     "pm2:start": "pm2 start ecosystem.config.cjs --only juhee-bot",
@@ -29,7 +30,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
-    "pm2": "^6.0.14"
+    "pm2": "^6.0.14",
+    "tsx": "^4.21.0"
   },
   "type": "module",
   "dependencies": {
@@ -44,6 +46,7 @@
     "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
     "node-audio-mixer": "^2.1.0",
     "nodemon": "^3.1.11",
+    "onnxruntime-node": "^1.24.3",
     "prism-media": "^1.3.5",
     "sequelize": "^6.37.7",
     "sqlite3": "^5.1.7",

@@ -20,37 +20,36 @@ if (!TOKEN || !SHARDS) {
   process.exit(1);
 }
 
-import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
 
 import {
-  Client,
-  GatewayIntentBits,
-  MessageType,
-  Events,
-  Interaction,
-  GuildMember,
-  MessageFlags,
-  Collection,
-  Guild,
-} from "discord.js";
-import {
-  getVoiceConnection,
-  createAudioPlayer,
-  NoSubscriberBehavior,
-  createAudioResource,
-  StreamType,
   AudioPlayerStatus,
+  createAudioPlayer,
+  createAudioResource,
+  getVoiceConnection,
+  NoSubscriberBehavior,
+  StreamType,
   VoiceConnection,
 } from "@discordjs/voice";
+import {
+  Client,
+  Collection,
+  Events,
+  GatewayIntentBits,
+  Guild,
+  GuildMember,
+  Interaction,
+  MessageFlags,
+  MessageType,
+} from "discord.js";
 import Stream, { PassThrough } from "stream";
 
-import msTTS from "./msTTS.js";
+import Action from "./action.js";
+import HttpServer from "./api.js";
 import { RegisterUser, RegisterUserMsg } from "./dbFunction.js";
 import { JoinedServer, Servers, Users } from "./dbObject.js";
-import Action from "./action.js";
+import supertonicTTS from "./supertonicTTS.js";
 import { DATA, GuildData } from "./types.js";
-import HttpServer from "./api.js";
 
 /**
  * 각 서버(길드)의 오디오 플레이어, 액션, 타임아웃을 관리하는 전역 배열
@@ -383,19 +382,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
 
-        const ttsVoice: string = user.dataValues.ttsVoice ?? "SeoHyeonNeural";
+        const ttsVoice: string = user.dataValues.ttsVoice ?? "F1";
         const ttsName: string =
           [
-            { name: "선히(여)", value: "SunHiNeural" },
-            { name: "인준(남)", value: "InJoonNeural" },
-            { name: "봉진(남)", value: "BongJinNeural" },
-            { name: "국민(남)", value: "GookMinNeural" },
-            // { name: '현수(남)', value: 'HyunsuNeural' },
-            { name: "지민(여)", value: "JiMinNeural" },
-            { name: "서현(여)", value: "SeoHyeonNeural" },
-            { name: "순복(여)", value: "SoonBokNeural" },
-            { name: "유진(여)", value: "YuJinNeural" },
-          ].find((kv) => kv.value === ttsVoice)?.name ?? "선히(여)";
+            { name: "F1", value: "F1" },
+            { name: "F2", value: "F2" },
+            { name: "F3", value: "F3" },
+            { name: "F4", value: "F4" },
+            { name: "F5", value: "F5" },
+            { name: "M1", value: "M1" },
+            { name: "M2", value: "M2" },
+            { name: "M3", value: "M3" },
+            { name: "M4", value: "M4" },
+            { name: "M5", value: "M5" },
+            // { name: "선히(여)", value: "SunHiNeural" },
+            // { name: "인준(남)", value: "InJoonNeural" },
+            // { name: "봉진(남)", value: "BongJinNeural" },
+            // { name: "국민(남)", value: "GookMinNeural" },
+            // // { name: '현수(남)', value: 'HyunsuNeural' },
+            // { name: "지민(여)", value: "JiMinNeural" },
+            // { name: "서현(여)", value: "SeoHyeonNeural" },
+            // { name: "순복(여)", value: "SoonBokNeural" },
+            // { name: "유진(여)", value: "YuJinNeural" },
+          ].find((kv) => kv.value === ttsVoice)?.name ?? "F1";
 
         const speed: number = user.dataValues.speed ?? 30;
         await guildData.action.editReply(`현재 tts 설정:`, `목소리: \`${ttsName}\`\n 속도: \`${speed}\``);
@@ -406,7 +415,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await guildData.action.deferReply(isEmpheral);
 
         const voice: string =
-          interaction.options.getString("목소리") ?? "SeoHyeonNeural";
+          interaction.options.getString("목소리") ?? "F1";
 
         const user: DATA | null = await Users.findOne({
           where: { id: interaction.user.id },
@@ -578,7 +587,7 @@ client.on(Events.MessageCreate, async (message) => {
         message.member?.displayName || message.author.username;
 
       try {
-        await msTTS(
+        await supertonicTTS(
           parsedText,
           (stream: PassThrough | null) => {
             if (!stream) {
@@ -603,7 +612,10 @@ client.on(Events.MessageCreate, async (message) => {
             }
 
             try {
-              const resource = createNewOggOpusAudioResource(stream);
+              const resource = createNewOggOpusAudioResource(
+                stream,
+                StreamType.Raw
+              );
               guildData.audioPlayer.play(resource);
               logger.info(
                 `🎵 TTS: [${message.guild.name}] ${displayName} (${
