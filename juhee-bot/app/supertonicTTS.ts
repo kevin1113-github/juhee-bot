@@ -202,6 +202,23 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveAssetDir(subDir: string): string {
+  // Prefer project-root assets path in production (.cache/app runtime).
+  const cwdCandidate = path.resolve(process.cwd(), "assets", subDir);
+  if (fs.existsSync(cwdCandidate)) {
+    return cwdCandidate;
+  }
+
+  // Fallback for direct source execution from app/.
+  const sourceCandidate = path.resolve(__dirname, "../assets", subDir);
+  if (fs.existsSync(sourceCandidate)) {
+    return sourceCandidate;
+  }
+
+  // Fallback for compiled execution from .cache/app/.
+  return path.resolve(__dirname, "../../assets", subDir);
+}
+
 function quickLanguageDetect(text: string): string {
   const koreanRegex = /[ㄱ-ㅎㅏ-ㅣ가-힣]/;
   const japaneseRegex = /[\u3040-\u30ff\u31f0-\u31ff]/;
@@ -289,7 +306,7 @@ async function writeCacheAtomic(filePath: string, result: SynthesisResult) {
 
 async function getTextToSpeechEngine(): Promise<TextToSpeechEngine> {
   if (!textToSpeechPromise) {
-    const onnxDir = path.resolve(__dirname, "../assets/onnx");
+    const onnxDir = resolveAssetDir("onnx");
     textToSpeechPromise = loadTextToSpeech(onnxDir, false)
       .then((engine) => engine as TextToSpeechEngine)
       .catch((e) => {
@@ -304,7 +321,7 @@ function getVoiceStyle(voice: keyof typeof VOICES): SupertonicStyle {
   const cached = styleCache.get(voice);
   if (cached) return cached;
 
-  const voiceStylePath = path.resolve(__dirname, `../assets/voice_styles/${voice}.json`);
+  const voiceStylePath = path.join(resolveAssetDir("voice_styles"), `${voice}.json`);
   const style = loadVoiceStyle([voiceStylePath], true) as SupertonicStyle;
   styleCache.set(voice, style);
   return style;
