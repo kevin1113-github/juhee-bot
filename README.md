@@ -2,9 +2,10 @@
 
 # 주희봇 (juhee-bot)
 
-<img width="291" height="96" alt="image" src="https://github.com/user-attachments/assets/7b5d9463-f692-4689-a250-c577a90f0064" />
-
 <img src="./juhee-profile.png" width="30%" />
+
+<img width="412" height="129" alt="image" src="https://github.com/user-attachments/assets/6a28a1a0-c57e-4b7f-bc80-9a8e3d1ecc30" />
+
 
 ## 📌 소개
 
@@ -70,6 +71,7 @@ Microsoft Azure Cognitive Services의 고품질 음성 합성 엔진을 사용�
 
 ---
 
+<!--
 ## 🎙️ 지원되는 목소리
 
 ### 한국어 기본 음성
@@ -95,6 +97,7 @@ Microsoft Azure Cognitive Services의 고품질 음성 합성 엔진을 사용�
 > **💡 Tip**: 다국어 지원 음성은 실험적 기능입니다. 추후 더 많은 다국어 음성이 추가될 예정입니다.
 
 ---
+-->
 
 ## ⚙️ 자동 기능
 
