@@ -9,6 +9,8 @@ dotenv.config();
 
 import fs from "fs";
 import path from "path";
+import zlib from "node:zlib";
+import { pipeline } from "node:stream/promises";
 
 /** 개발 모드 여부 */
 const DEV_MODE: boolean = process.env.DEV_MODE === "true";
@@ -49,21 +51,24 @@ export enum LogLevel {
 
 /**
  * 로거 클래스
- * 
+ *
  * @remarks
  * - 파일과 콘솔 동시 로깅
  * - 개발/프로덕션 모드별 로그 폴더 분리
  * - 한국 시간대 지원
  * - Circular reference 처리
- * - 7일 이상 된 로그 자동 정리
+ * - 매일(KST 자정) 로그 파일 로테이션, 지난 파일은 gzip 압축 보관(삭제하지 않음)
  */
 class Logger {
   /** 로그 파일 경로 */
   private logFilePath: string = "";
-  
+
   /** 로그 파일 쓰기 스트림 */
   private logStream: fs.WriteStream | null = null;
   private shardId: number | undefined = undefined;
+
+  /** 현재 활성 로그 파일의 KST 날짜 문자열 (YYYY-MM-DD) */
+  private currentDateStr: string = "";
 
   /**
    * Logger 생성자
@@ -77,9 +82,22 @@ class Logger {
   }
 
   /**
+   * KST 날짜 문자열(YYYY-MM-DD) 반환
+   *
+   * @private
+   */
+  private getKoreaDateStr(date?: Date): string {
+    return getKoreaTime(date).toISOString().slice(0, 10);
+  }
+
+  /**
    * 로그 파일 초기화
-   * 개발/프로덕션 모드에 따라 로그 폴더 생성 및 파일 생성
-   * 
+   * 개발/프로덕션 모드에 따라 로그 폴더 생성 및 (날짜별) 파일 생성
+   *
+   * @remarks
+   * 파일명은 KST 날짜 기준(`juhee_YYYY-MM-DD[_shardN].log`)이라 같은 날의 재시작은
+   * 동일 파일에 이어서 기록되고, 날짜가 바뀌면 새 파일로 로테이션된다.
+   *
    * @private
    */
   private initializeLogFile(): void {
@@ -91,20 +109,18 @@ class Logger {
         fs.mkdirSync(logsDir, { recursive: true });
       }
 
-      // 봇 시작 시간으로 로그 파일명 생성 (한국 시간 사용)
-      const startTime = getKoreaTime();
-      const timestamp = startTime.toISOString()
-        .replace(/:/g, "-")
-        .replace(/\./g, "-")
-        .replace("T", "_")
-        .slice(0, 19); // YYYY-MM-DD_HH-MM-SS 형식
+      // 날짜(KST)별 로그 파일명 생성
+      this.currentDateStr = this.getKoreaDateStr();
+      const shardSuffix =
+        this.shardId !== undefined ? `_shard${this.shardId}` : "";
+      this.logFilePath = path.join(
+        logsDir,
+        `juhee_${this.currentDateStr}${shardSuffix}.log`
+      );
 
-      const modePrefix = DEV_MODE ? "dev" : "prod";
-      this.logFilePath = path.join(logsDir, `juhee_${timestamp}${this.shardId !== undefined ? `_shard${this.shardId}` : ""}.log`);
-      
-      // 로그 스트림 생성
+      // 로그 스트림 생성 (append: 같은 날 재시작 시 이어쓰기)
       this.logStream = fs.createWriteStream(this.logFilePath, { flags: "a" });
-      
+
       // 로그 파일 시작 헤더 작성 (한국 시간 사용)
       const mode = DEV_MODE ? "DEVELOPMENT" : "PRODUCTION";
       this.writeToFile(`=== Juhee Bot Log Started at ${getKoreaISOString()} (KST) ===\n`);
@@ -118,7 +134,7 @@ class Logger {
       }
       this.writeToFile("=".repeat(60) + "\n\n");
 
-      console.log(`📝 Log file created (${mode}): ${this.logFilePath}`);
+      console.log(`📝 Log file (${mode}): ${this.logFilePath}`);
     } catch (error) {
       console.error("로그 파일 초기화 실패:", error);
     }
@@ -270,55 +286,115 @@ class Logger {
     }
   }
 
-  // 오래된 로그 파일 정리 (7일 이상)
-  cleanupOldLogs(): void {
+  /**
+   * 단일 로그 파일을 gzip으로 압축 (스트리밍이라 메모리 사용 적음)
+   * 원본 .log는 압축 성공 후 제거되지만 내용은 .gz에 그대로 보존된다.
+   *
+   * @private
+   */
+  private async gzipFile(srcPath: string): Promise<void> {
+    const gzPath = srcPath + ".gz";
+    // 이미 압축본이 있으면 건너뜀 (다른 프로세스가 먼저 처리한 경우 등)
+    if (fs.existsSync(gzPath)) return;
+
+    const tmpPath = `${gzPath}.tmp-${process.pid}-${Date.now()}`;
+    await pipeline(
+      fs.createReadStream(srcPath),
+      zlib.createGzip(),
+      fs.createWriteStream(tmpPath)
+    );
+    await fs.promises.rename(tmpPath, gzPath);
+    // 원본 제거 (내용은 .gz에 보존 — 삭제가 아니라 압축 보관)
+    await fs.promises.unlink(srcPath).catch(() => undefined);
+  }
+
+  /**
+   * 지난 날짜의 로그 파일을 gzip으로 압축 보관 (삭제하지 않음)
+   *
+   * @remarks
+   * - 오늘 날짜 파일과 현재 사용 중인 파일은 건너뛴다.
+   * - 이미 .gz가 있으면 건너뛴다.
+   */
+  async compressOldLogs(): Promise<void> {
     try {
-      // 현재 모드와 반대 모드 폴더 모두 정리
+      const today = this.getKoreaDateStr();
       const logsFolders = ["logs-dev", "logs-prod"];
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-      let deletedCount = 0;
+      let compressed = 0;
 
-      logsFolders.forEach(folderName => {
+      for (const folderName of logsFolders) {
         const logsDir = path.join(process.cwd(), folderName);
-        if (!fs.existsSync(logsDir)) return;
+        if (!fs.existsSync(logsDir)) continue;
 
-        const files = fs.readdirSync(logsDir);
+        for (const file of fs.readdirSync(logsDir)) {
+          if (!file.startsWith("juhee_") || !file.endsWith(".log")) continue;
 
-        files.forEach(file => {
-          // 실제 로그 파일명은 `juhee_...log` 형식이다. (이전 버그: `juhee-bot_`로 검사해 아무것도 못 지웠음)
-          if (file.startsWith("juhee_") && file.endsWith(".log")) {
-            const filePath = path.join(logsDir, file);
-            // 현재 사용 중인 로그 파일은 건너뜀
-            if (filePath === this.logFilePath) return;
+          const filePath = path.join(logsDir, file);
+          if (filePath === this.logFilePath) continue; // 현재 파일
+
+          // 파일 날짜 판별 (파일명 우선, 없으면 mtime)
+          const m = file.match(/(\d{4}-\d{2}-\d{2})/);
+          let fileDate = m ? m[1] : null;
+          if (!fileDate) {
             try {
-              const stats = fs.statSync(filePath);
-              if (stats.mtime.getTime() < sevenDaysAgo) {
-                fs.unlinkSync(filePath);
-                deletedCount++;
-                this.info(`🗑️ 오래된 로그 파일 삭제: ${folderName}/${file}`);
-              }
-            } catch (fileError) {
-              // 개별 파일 처리 실패(다른 프로세스가 먼저 삭제 등)는 무시하고 계속
+              fileDate = this.getKoreaDateStr(fs.statSync(filePath).mtime);
+            } catch {
+              continue;
             }
           }
-        });
-      });
+          // 오늘 날짜 파일은 아직 기록 중일 수 있으므로 건너뜀
+          if (fileDate >= today) continue;
 
-      if (deletedCount > 0) {
-        this.info(`✅ 오래된 로그 정리 완료: ${deletedCount}개 삭제`);
+          try {
+            await this.gzipFile(filePath);
+            compressed++;
+          } catch {
+            // 개별 파일 압축 실패는 무시하고 계속
+          }
+        }
+      }
+
+      if (compressed > 0) {
+        this.info(`🗜️ 지난 로그 압축 보관 완료: ${compressed}개 (.gz)`);
       }
     } catch (error) {
-      this.error("오래된 로그 정리 실패:", error);
+      this.error("로그 압축 실패:", error);
     }
   }
 
   /**
-   * 로그 자동 정리 스케줄러 시작
-   * 시작 시 1회 정리하고 이후 24시간마다 반복한다.
+   * KST 날짜가 바뀌었으면 새 로그 파일로 전환하고 지난 파일을 압축한다.
+   *
+   * @private
    */
-  startLogCleanupSchedule(): void {
-    this.cleanupOldLogs();
-    const timer = setInterval(() => this.cleanupOldLogs(), 24 * 60 * 60 * 1000);
+  private rotateIfNeeded(): void {
+    try {
+      const today = this.getKoreaDateStr();
+      if (today === this.currentDateStr) return;
+
+      // 날짜 변경 → 현재 스트림 종료 후 새 파일 오픈
+      if (this.logStream) {
+        this.writeToFile(
+          `\n=== 날짜 변경으로 로그 파일 전환 (${this.currentDateStr} → ${today}) ===\n`
+        );
+        this.logStream.end();
+        this.logStream = null;
+      }
+      this.initializeLogFile(); // currentDateStr 갱신 + 새 파일 오픈
+
+      // 지난 날짜 파일 압축 보관
+      void this.compressOldLogs();
+    } catch (error) {
+      console.error("로그 로테이션 실패:", error);
+    }
+  }
+
+  /**
+   * 로그 로테이션 스케줄러 시작
+   * 시작 시 지난 로그를 압축하고, 이후 매 분 날짜 변경을 확인해 로테이션한다.
+   */
+  startLogRotationSchedule(): void {
+    void this.compressOldLogs();
+    const timer = setInterval(() => this.rotateIfNeeded(), 60 * 1000);
     // 이 타이머 때문에 프로세스가 종료되지 못하는 일이 없도록 unref
     if (typeof timer.unref === "function") {
       timer.unref();

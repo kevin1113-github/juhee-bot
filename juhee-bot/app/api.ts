@@ -44,8 +44,8 @@ const LOGIN_LOCK_MS = 5 * 60 * 1000;
 const LOG_TAIL_BYTES = 256 * 1024;
 /** 로그 폴더 허용 목록 */
 const ALLOWED_LOG_FOLDERS = ["logs", "logs-dev", "logs-prod"];
-/** 로그 파일명 허용 패턴 */
-const LOG_FILE_REGEX = /^[A-Za-z0-9_.-]+\.log$/;
+/** 로그 파일명 허용 패턴 (.log 및 압축본 .log.gz) */
+const LOG_FILE_REGEX = /^[A-Za-z0-9_.-]+\.log(\.gz)?$/;
 
 const ts: Transform = new Transform({
   transform(chunk, _enc, cb) {
@@ -599,7 +599,7 @@ export default class HttpServer {
       const dir = path.join(process.cwd(), folder);
       if (!fs.existsSync(dir)) continue;
       for (const name of fs.readdirSync(dir)) {
-        if (!name.endsWith(".log")) continue;
+        if (!name.endsWith(".log") && !name.endsWith(".log.gz")) continue;
         try {
           const st = fs.statSync(path.join(dir, name));
           files.push({
@@ -630,7 +630,7 @@ export default class HttpServer {
     const dir = path.resolve(path.join(process.cwd(), folder));
     const full = path.resolve(path.join(dir, base));
     if (full !== dir && !full.startsWith(dir + path.sep)) return null;
-    if (!full.endsWith(".log")) return null;
+    if (!full.endsWith(".log") && !full.endsWith(".log.gz")) return null;
     if (!fs.existsSync(full)) return null;
     return full;
   }
@@ -735,6 +735,13 @@ export default class HttpServer {
           if (!full) {
             res.writeHead(400, { "Content-Type": "text/plain" });
             res.end("Invalid file");
+            return;
+          }
+          if (full.endsWith(".gz")) {
+            res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+            res.end(
+              "압축된 로그(.gz)입니다. 내용을 보려면 [다운로드] 후 압축을 해제하세요."
+            );
             return;
           }
           const text = await this.tailLog(full, LOG_TAIL_BYTES);

@@ -22,8 +22,8 @@ if (!TOKEN || !SHARDS) {
 
 import { logger } from "./logger.js";
 
-// 오래된 로그 파일 자동 정리 시작 (시작 시 1회 + 24시간마다)
-logger.startLogCleanupSchedule();
+// 로그 일일 로테이션 + 지난 파일 gzip 압축 보관 시작 (삭제하지 않음)
+logger.startLogRotationSchedule();
 
 import {
   AudioPlayerStatus,
