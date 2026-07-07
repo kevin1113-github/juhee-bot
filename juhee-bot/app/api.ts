@@ -27,8 +27,25 @@ import { Console } from "node:console";
 import { Transform } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
+import crypto from "node:crypto";
 import { create } from "node:domain";
 import { createEmbedMessage } from "./action.js";
+import { DASHBOARD_HTML } from "./dashboard.js";
+
+/** 대시보드 세션 유효시간 (12시간) */
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+/** 세션 쿠키 이름 */
+const SESSION_COOKIE = "dash_session";
+/** 로그인 실패 임계치 및 잠금시간 */
+const LOGIN_MAX_ATTEMPTS = 8;
+const LOGIN_LOCK_MS = 5 * 60 * 1000;
+/** 로그 조회 시 파일 끝에서 읽을 최대 바이트 (256KB) */
+const LOG_TAIL_BYTES = 256 * 1024;
+/** 로그 폴더 허용 목록 */
+const ALLOWED_LOG_FOLDERS = ["logs", "logs-dev", "logs-prod"];
+/** 로그 파일명 허용 패턴 */
+const LOG_FILE_REGEX = /^[A-Za-z0-9_.-]+\.log$/;
 
 const ts: Transform = new Transform({
   transform(chunk, _enc, cb) {
@@ -57,9 +74,16 @@ export let recognizeOption = false;
 export default class HttpServer {
   /** HTTP 서버 인스턴스 */
   private server: http.Server;
-  
+
   /** Discord 클라이언트 */
   private client: Client;
+
+  /** 대시보드 세션 저장소 (token -> 만료 시각 ms) */
+  private sessions: Map<string, number> = new Map();
+
+  /** 로그인 실패 추적 (IP -> { count, until }) */
+  private loginAttempts: Map<string, { count: number; until: number }> =
+    new Map();
 
   /**
    * 모든 서버의 TTS 채널에 공지 전송
@@ -67,7 +91,9 @@ export default class HttpServer {
    * @param data - 전송할 임베드 메시지
    * @private
    */
-  private async notice(data: EmbedBuilder) {
+  private async notice(
+    data: EmbedBuilder
+  ): Promise<{ success: number; failure: number; total: number }> {
     try {
       await Servers.sync();
       const servers: DATA[] = await Servers.findAll();
@@ -141,9 +167,11 @@ export default class HttpServer {
       if (failureCount > 0) {
         logger.info(`📋 Failure breakdown: ${missingAccessCount} missing access, ${unknownChannelCount} unknown channels, ${otherErrorCount} other errors, ${noChannelCount} no channel configured`);
       }
-      
+
+      return { success: successCount, failure: failureCount, total: servers.length };
     } catch (error) {
       logger.error("❌ Critical error occurred while sending notices:", error);
+      return { success: 0, failure: 0, total: 0 };
     }
   }
 
@@ -272,19 +300,539 @@ export default class HttpServer {
     }
   }
 
+  // ===================== 관리자 대시보드 =====================
+
+  /** 요청 클라이언트 IP 추출 */
+  private getClientIp(req: http.IncomingMessage): string {
+    const fwd = req.headers["x-forwarded-for"];
+    if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0].trim();
+    return req.socket.remoteAddress ?? "unknown";
+  }
+
+  /** 쿠키 헤더 파싱 */
+  private parseCookies(req: http.IncomingMessage): Record<string, string> {
+    const out: Record<string, string> = {};
+    const raw = req.headers.cookie;
+    if (!raw) return out;
+    for (const part of raw.split(";")) {
+      const idx = part.indexOf("=");
+      if (idx === -1) continue;
+      const k = part.slice(0, idx).trim();
+      const v = part.slice(idx + 1).trim();
+      if (k) out[k] = decodeURIComponent(v);
+    }
+    return out;
+  }
+
+  /** 세션 쿠키 유효성 검사 */
+  private isAuthed(req: http.IncomingMessage): boolean {
+    const token = this.parseCookies(req)[SESSION_COOKIE];
+    if (!token) return false;
+    const exp = this.sessions.get(token);
+    if (!exp) return false;
+    if (Date.now() > exp) {
+      this.sessions.delete(token);
+      return false;
+    }
+    return true;
+  }
+
+  /** 비밀번호 상수시간 비교 */
+  private verifyPassword(input: string): boolean {
+    if (!REQUEST_PASSWORD) return false;
+    const a = Buffer.from(input);
+    const b = Buffer.from(REQUEST_PASSWORD);
+    if (a.length !== b.length) return false;
+    try {
+      return crypto.timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 새 세션 발급 + Set-Cookie */
+  private issueSession(res: http.ServerResponse): void {
+    const now = Date.now();
+    for (const [t, exp] of this.sessions) if (exp < now) this.sessions.delete(t);
+
+    const token = crypto.randomBytes(32).toString("hex");
+    this.sessions.set(token, now + SESSION_TTL_MS);
+    const maxAge = Math.floor(SESSION_TTL_MS / 1000);
+    res.setHeader(
+      "Set-Cookie",
+      `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Strict`
+    );
+  }
+
+  /** 세션 파기 */
+  private clearSession(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): void {
+    const token = this.parseCookies(req)[SESSION_COOKIE];
+    if (token) this.sessions.delete(token);
+    res.setHeader(
+      "Set-Cookie",
+      `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`
+    );
+  }
+
+  private isLocked(ip: string): boolean {
+    const rec = this.loginAttempts.get(ip);
+    return !!rec && rec.until > Date.now();
+  }
+
+  private recordLoginFail(ip: string): void {
+    const rec = this.loginAttempts.get(ip) ?? { count: 0, until: 0 };
+    rec.count += 1;
+    if (rec.count >= LOGIN_MAX_ATTEMPTS) {
+      rec.until = Date.now() + LOGIN_LOCK_MS;
+      rec.count = 0;
+    }
+    this.loginAttempts.set(ip, rec);
+  }
+
+  private clearLoginFail(ip: string): void {
+    this.loginAttempts.delete(ip);
+  }
+
+  private sendJson(
+    res: http.ServerResponse,
+    status: number,
+    body: unknown
+  ): void {
+    res.writeHead(status, {
+      "Content-Type": "application/json; charset=utf-8",
+    });
+    res.end(JSON.stringify(body));
+  }
+
+  /** 요청 본문 읽기 (크기 제한 초과 시 413 후 null 반환) */
+  private readBody(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    maxSize: number
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      let data = "";
+      let size = 0;
+      req.on("data", (chunk: Buffer | string) => {
+        size += chunk.length;
+        if (size > maxSize) {
+          res.writeHead(413, { "Content-Type": "text/plain" });
+          res.end("Payload too large");
+          req.destroy();
+          resolve(null);
+          return;
+        }
+        data += typeof chunk === "string" ? chunk : chunk.toString();
+      });
+      req.on("end", () => resolve(data));
+      req.on("error", () => resolve(null));
+    });
+  }
+
+  /** TTS 캐시 통계 + 캐시 폴더 용량 수집 */
+  private readTtsStats(): {
+    hits: number;
+    misses: number;
+    inflightWaits: number;
+    errors: number;
+    cacheFiles: number;
+    cacheBytes: number;
+  } {
+    const totals = {
+      hits: 0,
+      misses: 0,
+      inflightWaits: 0,
+      errors: 0,
+      cacheFiles: 0,
+      cacheBytes: 0,
+    };
+    try {
+      const dir = process.env.TTS_CACHE_DIR
+        ? path.resolve(process.env.TTS_CACHE_DIR)
+        : path.join(process.cwd(), ".ttsCache");
+      if (!fs.existsSync(dir)) return totals;
+
+      for (const file of fs.readdirSync(dir)) {
+        const full = path.join(dir, file);
+        if (
+          file.startsWith("tts-stats-") &&
+          file.toLowerCase().endsWith(".json")
+        ) {
+          try {
+            const s = JSON.parse(fs.readFileSync(full, "utf8"));
+            totals.hits += Number(s?.hits ?? 0) || 0;
+            totals.misses += Number(s?.misses ?? 0) || 0;
+            totals.inflightWaits += Number(s?.inflightWaits ?? 0) || 0;
+            totals.errors += Number(s?.errors ?? 0) || 0;
+          } catch {
+            // 개별 파일 파싱 실패 무시
+          }
+        } else if (file.endsWith(".pcm")) {
+          try {
+            totals.cacheFiles += 1;
+            totals.cacheBytes += fs.statSync(full).size;
+          } catch {
+            // 무시
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn("⚠️ TTS 통계 수집 실패:", e);
+    }
+    return totals;
+  }
+
+  /** 리눅스 스왑 사용량 (/proc/meminfo) */
+  private readSwapInfo(): { swapTotal: number; swapUsed: number } {
+    try {
+      if (process.platform === "linux" && fs.existsSync("/proc/meminfo")) {
+        const info = fs.readFileSync("/proc/meminfo", "utf8");
+        const total = /SwapTotal:\s+(\d+)\s+kB/.exec(info);
+        const free = /SwapFree:\s+(\d+)\s+kB/.exec(info);
+        if (total && free) {
+          const t = parseInt(total[1], 10) * 1024;
+          const f = parseInt(free[1], 10) * 1024;
+          return { swapTotal: t, swapUsed: t - f };
+        }
+      }
+    } catch {
+      // 무시
+    }
+    return { swapTotal: 0, swapUsed: 0 };
+  }
+
+  /** 개요/시스템/TTS 통계 집계 */
+  private async gatherStats() {
+    let perShard: number[] = [];
+    let shardCount = 1;
+    let totalRss = 0;
+    try {
+      if (this.client.shard) {
+        perShard = (await this.client.shard.fetchClientValues(
+          "guilds.cache.size"
+        )) as number[];
+        shardCount = this.client.shard.count;
+        const rss = (await this.client.shard.broadcastEval(() =>
+          process.memoryUsage().rss
+        )) as number[];
+        totalRss = rss.reduce((a, b) => a + (Number(b) || 0), 0);
+      } else {
+        perShard = [this.client.guilds.cache.size];
+        totalRss = process.memoryUsage().rss;
+      }
+    } catch (e) {
+      logger.warn("⚠️ 샤드 통계 수집 실패:", e);
+      perShard = [this.client.guilds.cache.size];
+      totalRss = process.memoryUsage().rss;
+    }
+    const totalGuilds = perShard.reduce((a, b) => a + (Number(b) || 0), 0);
+
+    const [userCount, joinCount] = await Promise.all([
+      Users.count(),
+      JoinedServer.count(),
+    ]);
+
+    const tts = this.readTtsStats();
+    const swap = this.readSwapInfo();
+    const memTotal = os.totalmem();
+    const memFree = os.freemem();
+
+    return {
+      bot: {
+        totalGuilds,
+        userCount,
+        joinCount,
+        shardCount,
+        perShard,
+        totalRss,
+        uptimeSec:
+          this.client.uptime != null
+            ? Math.floor(this.client.uptime / 1000)
+            : Math.floor(process.uptime()),
+      },
+      system: {
+        memTotal,
+        memUsed: memTotal - memFree,
+        swapTotal: swap.swapTotal,
+        swapUsed: swap.swapUsed,
+        load1: os.loadavg()[0],
+        cpuCount: os.cpus().length,
+        osUptimeSec: Math.floor(os.uptime()),
+        nodeVersion: process.version,
+      },
+      tts,
+      recognizeOption,
+    };
+  }
+
+  /** 서버 목록 집계 */
+  private async gatherServers() {
+    const servers: DATA[] = await Servers.findAll();
+    const list = servers.map((sv) => {
+      const id = sv.dataValues.id as string;
+      const guild = this.client.guilds.cache.get(id);
+      return {
+        id,
+        name: guild?.name ?? "(캐시에 없음/다른 샤드)",
+        ttsChannel: sv.dataValues.ttsChannel ?? null,
+        isMuted: !!sv.dataValues.isMuted,
+        memberCount: guild?.memberCount ?? null,
+      };
+    });
+    list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    return list;
+  }
+
+  /** 로그 파일 목록 */
+  private listLogFiles() {
+    const files: {
+      folder: string;
+      name: string;
+      size: number;
+      mtime: string;
+      mtimeMs: number;
+    }[] = [];
+    for (const folder of ALLOWED_LOG_FOLDERS) {
+      const dir = path.join(process.cwd(), folder);
+      if (!fs.existsSync(dir)) continue;
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".log")) continue;
+        try {
+          const st = fs.statSync(path.join(dir, name));
+          files.push({
+            folder,
+            name,
+            size: st.size,
+            mtime: new Date(st.mtimeMs).toISOString(),
+            mtimeMs: st.mtimeMs,
+          });
+        } catch {
+          // 무시
+        }
+      }
+    }
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return files;
+  }
+
+  /** 로그 파일 경로 안전 검증 후 절대경로 반환 (실패 시 null) */
+  private resolveLogFile(
+    folder: string | null,
+    file: string | null
+  ): string | null {
+    if (!folder || !file) return null;
+    if (!ALLOWED_LOG_FOLDERS.includes(folder)) return null;
+    if (!LOG_FILE_REGEX.test(file)) return null;
+    const base = path.basename(file);
+    const dir = path.resolve(path.join(process.cwd(), folder));
+    const full = path.resolve(path.join(dir, base));
+    if (full !== dir && !full.startsWith(dir + path.sep)) return null;
+    if (!full.endsWith(".log")) return null;
+    if (!fs.existsSync(full)) return null;
+    return full;
+  }
+
+  /** 로그 파일 끝부분 읽기 */
+  private async tailLog(full: string, maxBytes: number): Promise<string> {
+    const st = await fs.promises.stat(full);
+    if (st.size <= maxBytes) {
+      return await fs.promises.readFile(full, "utf8");
+    }
+    const start = st.size - maxBytes;
+    const fh = await fs.promises.open(full, "r");
+    try {
+      const buf = Buffer.alloc(maxBytes);
+      await fh.read(buf, 0, maxBytes, start);
+      const text = buf.toString("utf8");
+      const nl = text.indexOf("\n");
+      const trimmed = nl >= 0 ? text.slice(nl + 1) : text;
+      return (
+        `... (앞부분 생략, 마지막 ${Math.floor(maxBytes / 1024)}KB 표시) ...\n` +
+        trimmed
+      );
+    } finally {
+      await fh.close();
+    }
+  }
+
+  /** 대시보드/관리 API 라우팅 */
+  private async handleAdmin(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    try {
+      const pathname = (req.url || "").split("?")[0];
+      const method = req.method || "GET";
+
+      // 대시보드 페이지
+      if ((pathname === "/" || pathname === "/admin") && method === "GET") {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "X-Frame-Options": "DENY",
+          "Referrer-Policy": "no-referrer",
+        });
+        res.end(DASHBOARD_HTML);
+        return;
+      }
+
+      // 로그인
+      if (pathname === "/admin/login" && method === "POST") {
+        const ip = this.getClientIp(req);
+        if (this.isLocked(ip)) {
+          res.writeHead(429, { "Content-Type": "text/plain" });
+          res.end("Too many attempts");
+          return;
+        }
+        const body = await this.readBody(req, res, 4096);
+        if (body === null) return;
+        const pw = new URLSearchParams(body).get("password") ?? "";
+        if (this.verifyPassword(pw)) {
+          this.clearLoginFail(ip);
+          this.issueSession(res);
+          this.sendJson(res, 200, { ok: true });
+        } else {
+          this.recordLoginFail(ip);
+          this.sendJson(res, 401, { ok: false });
+        }
+        return;
+      }
+
+      // 로그아웃
+      if (pathname === "/admin/logout" && method === "POST") {
+        this.clearSession(req, res);
+        this.sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      // 이하 /admin/api/* 는 인증 필요
+      if (pathname.startsWith("/admin/api/")) {
+        if (!this.isAuthed(req)) {
+          this.sendJson(res, 401, { error: "unauthorized" });
+          return;
+        }
+
+        if (pathname === "/admin/api/stats" && method === "GET") {
+          this.sendJson(res, 200, await this.gatherStats());
+          return;
+        }
+        if (pathname === "/admin/api/servers" && method === "GET") {
+          this.sendJson(res, 200, { servers: await this.gatherServers() });
+          return;
+        }
+        if (pathname === "/admin/api/logs" && method === "GET") {
+          this.sendJson(res, 200, { files: this.listLogFiles() });
+          return;
+        }
+        if (pathname === "/admin/api/logs/view" && method === "GET") {
+          const q = new URL(req.url || "", "http://localhost");
+          const full = this.resolveLogFile(
+            q.searchParams.get("folder"),
+            q.searchParams.get("file")
+          );
+          if (!full) {
+            res.writeHead(400, { "Content-Type": "text/plain" });
+            res.end("Invalid file");
+            return;
+          }
+          const text = await this.tailLog(full, LOG_TAIL_BYTES);
+          res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end(text);
+          return;
+        }
+        if (pathname === "/admin/api/logs/download" && method === "GET") {
+          const q = new URL(req.url || "", "http://localhost");
+          const full = this.resolveLogFile(
+            q.searchParams.get("folder"),
+            q.searchParams.get("file")
+          );
+          if (!full) {
+            res.writeHead(400, { "Content-Type": "text/plain" });
+            res.end("Invalid file");
+            return;
+          }
+          res.writeHead(200, {
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": `attachment; filename="${path.basename(
+              full
+            )}"`,
+          });
+          fs.createReadStream(full).pipe(res);
+          return;
+        }
+        if (pathname === "/admin/api/notice" && method === "POST") {
+          const body = await this.readBody(req, res, 1024 * 1024);
+          if (body === null) return;
+          let title = "";
+          let content = "";
+          try {
+            const j = JSON.parse(body);
+            title = String(j.title ?? "");
+            content = String(j.content ?? "");
+          } catch {
+            // 무시
+          }
+          if (!title) {
+            this.sendJson(res, 400, { error: "title required" });
+            return;
+          }
+          const embed = createEmbedMessage(title, content);
+          const result = await this.notice(embed);
+          this.sendJson(res, 200, result);
+          return;
+        }
+        if (
+          pathname === "/admin/api/toggleRecognize" &&
+          method === "POST"
+        ) {
+          recognizeOption = !recognizeOption;
+          this.sendJson(res, 200, { recognizeOption });
+          return;
+        }
+
+        this.sendJson(res, 404, { error: "not found" });
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+    } catch (error) {
+      logger.error("대시보드 요청 처리 오류:", error);
+      try {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Internal server error");
+      } catch {
+        // 무시
+      }
+    }
+  }
+
   /**
    * HTTP 요청 핸들러
    * 각종 POST/GET 엔드포인트 처리
-   * 
+   *
    * @private
    */
   private requestHandler = (
     req: http.IncomingMessage,
     res: http.ServerResponse
   ) => {
+    // 대시보드/관리 라우트 우선 처리
+    const pathname = (req.url || "").split("?")[0];
+    if (
+      pathname === "/" ||
+      pathname === "/admin" ||
+      pathname.startsWith("/admin/")
+    ) {
+      void this.handleAdmin(req, res);
+      return;
+    }
+
     // POST 요청 크기 제한 (1MB)
     const MAX_POST_SIZE = 1024 * 1024; // 1MB
-    
+
     if (req.url === "/notice" && req.method === "POST") {
       let postData: string = "";
       let dataSize = 0;
