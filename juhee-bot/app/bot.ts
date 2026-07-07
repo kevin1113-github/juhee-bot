@@ -22,6 +22,9 @@ if (!TOKEN || !SHARDS) {
 
 import { logger } from "./logger.js";
 
+// 오래된 로그 파일 자동 정리 시작 (시작 시 1회 + 24시간마다)
+logger.startLogCleanupSchedule();
+
 import {
   AudioPlayerStatus,
   createAudioPlayer,
@@ -52,24 +55,29 @@ import supertonicTTS from "./supertonicTTS.js";
 import { DATA, GuildData } from "./types.js";
 
 /**
- * 각 서버(길드)의 오디오 플레이어, 액션, 타임아웃을 관리하는 전역 배열
- * @type {GuildData[]}
+ * 각 서버(길드)의 오디오 플레이어, 액션, 타임아웃을 관리하는 전역 맵
+ * key: guildId, value: GuildData
+ *
+ * @remarks
+ * 이전에는 배열 + 매 메시지마다 O(n) find로 탐색했고, 동시 이벤트 시 중복 등록될 수 있었다.
+ * Map으로 전환해 O(1) 조회 및 guildId 유일성을 보장한다.
  */
-const guildDataList: GuildData[] = [];
+const guildDataMap: Map<string, GuildData> = new Map();
 
 /**
  * 전역 에러 핸들러
  * 처리되지 않은 Promise 거부와 예외를 잡아서 로그를 남김
  */
 process.on("unhandledRejection", (reason, promise) => {
+  // discord.js 음성/게이트웨이/네트워크에서 흔히 발생하는 rejection으로
+  // 샤드 전체를 죽이지 않는다. 로그만 남기고 프로세스는 계속 유지한다.
   logger.unhandledRejection(reason);
-  // 상세 스택 트레이스 로깅
   if (reason instanceof Error) {
     logger.error("💥 Unhandled Rejection Stack:", reason.stack);
   }
-  // 치명적인 에러로 간주하고 프로세스 종료 (nodemon이 재시작)
-  logger.error("⚠️ 처리되지 않은 Promise rejection으로 인해 프로세스 종료");
-  process.exit(1);
+  logger.warn(
+    "⚠️ 처리되지 않은 Promise rejection 발생 (프로세스는 유지됨)"
+  );
 });
 
 process.on("uncaughtException", (error) => {
@@ -216,12 +224,12 @@ client.once(Events.ClientReady, async () => {
       logger.info(`✅ 모든 DB 서버가 현재 접속 중 - 정리 불필요`);
     }
 
-    // 실제로 접속한 서버만 guildDataList에 추가
+    // 실제로 접속한 서버만 guildDataMap에 추가
     const remainingServers = servers.filter((server) => {
       return actualGuilds.has(server.dataValues.id);
     });
     for (const server of remainingServers) {
-      guildDataList.push({
+      guildDataMap.set(server.dataValues.id, {
         guildId: server.dataValues.id,
         audioPlayer: null,
         action: new Action(),
@@ -229,7 +237,7 @@ client.once(Events.ClientReady, async () => {
       });
     }
 
-    logger.info(`📋 ${guildDataList.length}개 활성 서버를 메모리에 로드 완료`);
+    logger.info(`📋 ${guildDataMap.size}개 활성 서버를 메모리에 로드 완료`);
 
     // 최종 통계 로깅
     const finalServerCount = await Servers.count();
@@ -306,8 +314,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       // get guild data
-      let guildData: GuildData | undefined = guildDataList.find(
-        (data) => data.guildId == interaction.guildId
+      let guildData: GuildData | undefined = guildDataMap.get(
+        interaction.guildId
       );
       if (!guildData) {
         guildData = {
@@ -317,7 +325,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           action: new Action(interaction),
           timeOut: null,
         };
-        guildDataList.push(guildData);
+        guildDataMap.set(interaction.guildId, guildData);
       } else {
         guildData.action.setInteraction(interaction);
       }
@@ -509,9 +517,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // 길드 데이터 가져오기 또는 생성
-    let guildData: GuildData | undefined = guildDataList.find(
-      (data) => data.guildId == message.guildId
-    );
+    let guildData: GuildData | undefined = guildDataMap.get(message.guildId);
     if (!guildData) {
       guildData = {
         guildId: message.guildId,
@@ -519,7 +525,7 @@ client.on(Events.MessageCreate, async (message) => {
         action: new Action(message),
         timeOut: null,
       };
-      guildDataList.push(guildData);
+      guildDataMap.set(message.guildId, guildData);
     } else {
       guildData.action.setInteraction(message);
     }
@@ -712,8 +718,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         // 음성 채널에 남은 사람이 없는지 확인 (봇 제외)
         if (nonBotMembers.size === 0) {
           connection.destroy();
-          const guildData: GuildData | undefined = guildDataList.find(
-            (data) => data.guildId == oldState.guild.id
+          const guildData: GuildData | undefined = guildDataMap.get(
+            oldState.guild.id
           );
           if (guildData) {
             // 타임아웃 정리
@@ -751,14 +757,10 @@ client.on(Events.GuildDelete, async (guild) => {
   try {
     logger.warn(`🚪 서버에서 봇 제거됨: "${guild.name}" (ID: ${guild.id})`);
 
-    // guildDataList에서 해당 서버 데이터 제거
-    const guildDataIndex = guildDataList.findIndex(
-      (data) => data.guildId === guild.id
-    );
+    // guildDataMap에서 해당 서버 데이터 제거
+    const guildData = guildDataMap.get(guild.id);
 
-    if (guildDataIndex !== -1) {
-      const guildData = guildDataList[guildDataIndex];
-
+    if (guildData) {
       // 타임아웃 정리
       if (guildData.timeOut) {
         clearTimeout(guildData.timeOut);
@@ -777,10 +779,10 @@ client.on(Events.GuildDelete, async (guild) => {
         voiceConnection.destroy();
       }
 
-      // 리스트에서 제거
-      guildDataList.splice(guildDataIndex, 1);
+      // 맵에서 제거
+      guildDataMap.delete(guild.id);
       logger.info(
-        `✅ 서버 "${guild.name}" 데이터 정리 완료 (남은 서버: ${guildDataList.length}개)`
+        `✅ 서버 "${guild.name}" 데이터 정리 완료 (남은 서버: ${guildDataMap.size}개)`
       );
     }
 
@@ -836,12 +838,9 @@ client.on(Events.GuildCreate, async (guild) => {
       );
     }
 
-    // guildDataList에 추가 (아직 없는 경우)
-    const existingData = guildDataList.find(
-      (data) => data.guildId === guild.id
-    );
-    if (!existingData) {
-      guildDataList.push({
+    // guildDataMap에 추가 (아직 없는 경우)
+    if (!guildDataMap.has(guild.id)) {
+      guildDataMap.set(guild.id, {
         guildId: guild.id,
         audioPlayer: null,
         action: new Action(),

@@ -422,11 +422,21 @@ export function loadVoiceStyle(voiceStylePaths, verbose = false) {
  * Load text to speech components
  */
 export async function loadTextToSpeech(onnxDir, useGpu = false) {
-    const opts = {};
+    // 짧은 TTS 문장에서는 멀티스레드 이득이 거의 없고, 기본값(코어 수만큼 스레드)은
+    // 모델 4개 × 샤드 수만큼 곱해져 메모리/CPU를 크게 낭비한다. 스레드를 1로 제한하고
+    // 메모리 아레나를 꺼서 상주 메모리를 줄인다. (SUPERTONIC_ORT_THREADS로 조정 가능)
+    const ortThreads = Math.max(1, parseInt(process.env.SUPERTONIC_ORT_THREADS ?? '1', 10) || 1);
+    const opts = {
+        intraOpNumThreads: ortThreads,
+        interOpNumThreads: 1,
+        executionMode: 'sequential',
+        graphOptimizationLevel: 'all',
+        enableCpuMemArena: false,
+    };
     if (useGpu) {
         throw new Error('GPU mode is not supported yet');
     } else {
-        console.log('Using CPU for inference');
+        console.log(`Using CPU for inference (intraOpNumThreads=${ortThreads})`);
     }
     
     const cfgs = loadCfgs(onnxDir);

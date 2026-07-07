@@ -14,6 +14,9 @@ import path from "path";
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
 
+// 오래된 로그 파일 자동 정리 시작 (시작 시 1회 + 24시간마다)
+logger.startLogCleanupSchedule();
+
 /** Discord 봇 토큰 */
 const TOKEN: string = process.env.TOKEN ?? "";
 /** Discord 애플리케이션 클라이언트 ID (봇 ID) */
@@ -66,9 +69,25 @@ logger.info(`━━━━━━━━━━━━━━━━━━━━━━�
  * - 수동으로 설정하려면 숫자를 입력 (예: 2, 4, 8 등)
  * - 각 샤드는 약 1,000~2,500개 서버를 처리할 수 있음
  */
+/**
+ * 총 샤드 수 결정
+ *
+ * @remarks
+ * - 각 샤드는 별도 Node 프로세스이며, 프로세스마다 ONNX TTS 모델(약 256MB)을 중복 로드한다.
+ *   따라서 서버 수가 적을 때 'auto'로 여러 샤드를 띄우면 메모리를 크게 낭비한다.
+ * - 서버가 2,500개 미만이면 1개로 충분하다. 규모가 커지면 TOTAL_SHARDS 환경변수로 조정한다.
+ *   (예: TOTAL_SHARDS=2, TOTAL_SHARDS=auto)
+ */
+const rawTotalShards = process.env.TOTAL_SHARDS ?? "1";
+const totalShards: number | "auto" =
+  rawTotalShards.trim().toLowerCase() === "auto"
+    ? "auto"
+    : Math.max(1, parseInt(rawTotalShards, 10) || 1);
+logger.info(`   🔷 총 샤드 수 설정: ${totalShards}`);
+
 const manager = new ShardingManager(path.join(__dirname, `bot.${extension}`), {
   token: TOKEN,
-  totalShards: "auto", // 'auto' 또는 특정 숫자 (예: 2, 4, 8)
+  totalShards, // 기본 1개. 'auto' 또는 특정 숫자(TOTAL_SHARDS 환경변수)로 조정
   respawn: true, // 샤드 크래시 시 자동 재시작
   shardArgs: [], // 각 샤드에 전달할 추가 인자
   execArgv: shardExecArgv, // Node.js 실행 옵션

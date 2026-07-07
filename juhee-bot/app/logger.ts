@@ -276,27 +276,52 @@ class Logger {
       // 현재 모드와 반대 모드 폴더 모두 정리
       const logsFolders = ["logs-dev", "logs-prod"];
       const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      let deletedCount = 0;
 
       logsFolders.forEach(folderName => {
         const logsDir = path.join(process.cwd(), folderName);
         if (!fs.existsSync(logsDir)) return;
 
         const files = fs.readdirSync(logsDir);
-        
+
         files.forEach(file => {
-          if (file.startsWith("juhee-bot_") && file.endsWith(".log")) {
+          // 실제 로그 파일명은 `juhee_...log` 형식이다. (이전 버그: `juhee-bot_`로 검사해 아무것도 못 지웠음)
+          if (file.startsWith("juhee_") && file.endsWith(".log")) {
             const filePath = path.join(logsDir, file);
-            const stats = fs.statSync(filePath);
-            
-            if (stats.mtime.getTime() < sevenDaysAgo) {
-              fs.unlinkSync(filePath);
-              this.info(`🗑️ 오래된 로그 파일 삭제: ${folderName}/${file}`);
+            // 현재 사용 중인 로그 파일은 건너뜀
+            if (filePath === this.logFilePath) return;
+            try {
+              const stats = fs.statSync(filePath);
+              if (stats.mtime.getTime() < sevenDaysAgo) {
+                fs.unlinkSync(filePath);
+                deletedCount++;
+                this.info(`🗑️ 오래된 로그 파일 삭제: ${folderName}/${file}`);
+              }
+            } catch (fileError) {
+              // 개별 파일 처리 실패(다른 프로세스가 먼저 삭제 등)는 무시하고 계속
             }
           }
         });
       });
+
+      if (deletedCount > 0) {
+        this.info(`✅ 오래된 로그 정리 완료: ${deletedCount}개 삭제`);
+      }
     } catch (error) {
       this.error("오래된 로그 정리 실패:", error);
+    }
+  }
+
+  /**
+   * 로그 자동 정리 스케줄러 시작
+   * 시작 시 1회 정리하고 이후 24시간마다 반복한다.
+   */
+  startLogCleanupSchedule(): void {
+    this.cleanupOldLogs();
+    const timer = setInterval(() => this.cleanupOldLogs(), 24 * 60 * 60 * 1000);
+    // 이 타이머 때문에 프로세스가 종료되지 못하는 일이 없도록 unref
+    if (typeof timer.unref === "function") {
+      timer.unref();
     }
   }
 

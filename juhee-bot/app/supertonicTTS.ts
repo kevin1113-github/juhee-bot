@@ -85,6 +85,18 @@ const TTS_CACHE_MAX_AGE_DAYS: number = (() => {
   return Number.isFinite(parsed) ? parsed : 30;
 })();
 
+/** TTS 캐시 폴더 총 용량 상한 (바이트). 초과 시 오래된 파일부터(LRU) 삭제. 기본 500MB, 0이면 무제한 */
+const TTS_CACHE_MAX_BYTES: number = (() => {
+  const raw = process.env.TTS_CACHE_MAX_MB ?? "500";
+  const parsed = parseInt(raw, 10);
+  const mb = Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
+  return mb * 1024 * 1024;
+})();
+
+/** 캐시 정리 주기 (ms). 기본 1시간 */
+const TTS_CACHE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+let cacheCleanupRunning = false;
+
 const inFlightSynthesis: Map<string, Promise<SynthesisResult>> = new Map();
 const styleCache: Map<string, SupertonicStyle> = new Map();
 
@@ -511,6 +523,105 @@ async function supertonicTTS(
     } catch (callbackError) {
       logger.error("❌ Supertonic TTS 실패 콜백 오류:", callbackError);
     }
+  }
+}
+
+/**
+ * TTS 캐시 폴더 정리
+ *
+ * @remarks
+ * 1) mtime 기준 TTS_CACHE_MAX_AGE_DAYS 초과 파일 삭제 (접근 여부와 무관하게 스윕)
+ * 2) 그래도 총 용량이 TTS_CACHE_MAX_BYTES를 초과하면 오래된 파일부터(LRU) 삭제
+ *
+ * `.pcm` 캐시 파일만 대상으로 하며 통계 파일(tts-stats-*.json)은 건드리지 않는다.
+ */
+async function cleanupCacheDir(): Promise<void> {
+  if (cacheCleanupRunning) return;
+  cacheCleanupRunning = true;
+  try {
+    ensureCacheDir();
+    if (!cacheDirReady) return;
+
+    let names: string[];
+    try {
+      names = await fs.promises.readdir(TTS_CACHE_DIR);
+    } catch {
+      return;
+    }
+
+    const pcmFiles = names.filter((n) => n.endsWith(".pcm"));
+    if (pcmFiles.length === 0) return;
+
+    const maxAgeMs =
+      TTS_CACHE_MAX_AGE_DAYS > 0
+        ? TTS_CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+        : 0;
+    const now = Date.now();
+
+    const entries: { path: string; size: number; mtimeMs: number }[] = [];
+    let removedByAge = 0;
+
+    for (const name of pcmFiles) {
+      const filePath = path.join(TTS_CACHE_DIR, name);
+      try {
+        const stat = await fs.promises.stat(filePath);
+
+        // 1) 나이 초과 파일 삭제
+        if (maxAgeMs > 0 && now - stat.mtimeMs > maxAgeMs) {
+          await fs.promises.unlink(filePath).catch(() => undefined);
+          removedByAge++;
+          continue;
+        }
+
+        entries.push({
+          path: filePath,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
+      } catch {
+        // 개별 파일 처리 실패는 무시
+      }
+    }
+
+    // 2) 총 용량 상한 초과 시 LRU(오래된 mtime부터) 삭제
+    let removedBySize = 0;
+    if (TTS_CACHE_MAX_BYTES > 0) {
+      let totalBytes = entries.reduce((acc, e) => acc + e.size, 0);
+      if (totalBytes > TTS_CACHE_MAX_BYTES) {
+        entries.sort((a, b) => a.mtimeMs - b.mtimeMs); // 오래된 순
+        for (const entry of entries) {
+          if (totalBytes <= TTS_CACHE_MAX_BYTES) break;
+          try {
+            await fs.promises.unlink(entry.path);
+            totalBytes -= entry.size;
+            removedBySize++;
+          } catch {
+            // 무시
+          }
+        }
+      }
+    }
+
+    if (removedByAge > 0 || removedBySize > 0) {
+      logger.info(
+        `🧹 TTS 캐시 정리: 만료 ${removedByAge}개, 용량초과 ${removedBySize}개 삭제`
+      );
+    }
+  } catch (e) {
+    logger.warn("⚠️ TTS 캐시 정리 실패:", e);
+  } finally {
+    cacheCleanupRunning = false;
+  }
+}
+
+// 시작 시 1회 정리 후 주기적으로 반복 (타이머는 unref로 프로세스 종료를 막지 않음)
+void cleanupCacheDir();
+{
+  const cacheCleanupTimer = setInterval(() => {
+    void cleanupCacheDir();
+  }, TTS_CACHE_CLEANUP_INTERVAL_MS);
+  if (typeof cacheCleanupTimer.unref === "function") {
+    cacheCleanupTimer.unref();
   }
 }
 

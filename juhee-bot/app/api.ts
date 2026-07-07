@@ -235,12 +235,29 @@ export default class HttpServer {
 
     const timestamp = Date.now();
     const filename = `status_${timestamp}.txt`;
-    const filepath = path.join(process.cwd(), "public", "status", filename);
+    const statusDir = path.join(process.cwd(), "public", "status");
+    const filepath = path.join(statusDir, filename);
 
     // public 디렉토리 생성
-    fs.mkdirSync(path.join(process.cwd(), "public", "status"), {
-      recursive: true,
-    });
+    fs.mkdirSync(statusDir, { recursive: true });
+
+    // 오래된 status 파일 정리 (1일 이상 경과분 삭제 - 디스크 누적 방지)
+    try {
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      for (const file of fs.readdirSync(statusDir)) {
+        if (!file.startsWith("status_") || !file.endsWith(".txt")) continue;
+        const oldPath = path.join(statusDir, file);
+        try {
+          if (fs.statSync(oldPath).mtimeMs < oneDayAgo) {
+            fs.unlinkSync(oldPath);
+          }
+        } catch {
+          // 개별 파일 처리 실패는 무시
+        }
+      }
+    } catch (cleanupError) {
+      logger.warn("⚠️ 오래된 status 파일 정리 실패:", cleanupError);
+    }
 
     // 결과를 파일로 저장
     fs.writeFileSync(filepath, await result());

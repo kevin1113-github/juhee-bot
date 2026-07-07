@@ -21,21 +21,28 @@ module.exports = {
       // 실행 모드
       instances: 1, // 샤드 매니저는 단일 인스턴스로 실행
       exec_mode: 'fork',
-      
+
+      // Node.js 실행 옵션 (V8 힙 상한으로 스왑/OOM 유발 억제)
+      // 샤드 매니저 프로세스 기준. 서버 램 규모에 맞춰 조정 가능.
+      node_args: '--max-old-space-size=512',
+
       // 환경 변수
       env: {
         NODE_ENV: 'production',
       },
-      
+
       // 자동 재시작 설정
       autorestart: true,
       watch: false,
-      max_memory_restart: '2G', // 샤딩 사용 시 메모리 제한 증가
-      
+      max_memory_restart: '1G', // 힙 상한(512MB)과 네이티브 메모리를 고려한 상한
+
       // 재시작 전략
-      min_uptime: '10s',
-      max_restarts: 10,
-      restart_delay: 4000,
+      // 이전 설정(max_restarts:10, min_uptime:10s)은 네트워크 오류가 잠깐 몰리면
+      // PM2가 봇을 영구 정지시켜 다운 상태로 방치되는 원인이었다.
+      min_uptime: '30s', // 30초 이상 살아있으면 정상 기동으로 간주 (ONNX 워밍업 시간 고려)
+      max_restarts: 50,
+      restart_delay: 5000,
+      exp_backoff_restart_delay: 100, // 재시작 폭주 시 지수 백오프로 완화
       
       // 로그 관리
       error_file: './logs/error.log',
