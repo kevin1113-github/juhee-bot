@@ -29,6 +29,27 @@ import { DATA } from "./types.js";
 import { logger } from "./logger.js";
 
 /**
+ * 이미 상태 이벤트 핸들러를 등록한 VoiceConnection 집합.
+ *
+ * @remarks
+ * setupVoiceConnectionHandlers는 매 입장/재연결/기존 연결 재사용마다 호출됐고,
+ * 그때마다 Disconnected/Ready/error/stateChange 리스너를 제거 없이 계속 추가해
+ * 동일 connection에 리스너(및 클로저로 캡처된 voiceChannel/audioPlayer)가 누적됐다.
+ * WeakSet으로 connection당 1회만 등록하도록 보장한다. (connection이 GC되면 자동 제거)
+ */
+const connectionsWithHandlers = new WeakSet<VoiceConnection>();
+
+/**
+ * 현재 재연결이 진행 중인 길드 ID 집합.
+ *
+ * @remarks
+ * Disconnected 핸들러와 error 핸들러, 재연결 실패 재귀가 각각 setTimeout으로
+ * 재연결을 걸어 동일 길드에 재연결 루프가 중첩될 수 있었다. 길드별로 한 번에
+ * 하나의 재연결 세션만 실행되도록 가드한다.
+ */
+const reconnectingGuilds = new Set<string>();
+
+/**
  * Discord 인터랙션 및 메시지 액션을 처리하는 클래스
  *
  * @remarks
@@ -220,6 +241,11 @@ export default class Action {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 5000; // 5초
 
+    // 동일 connection에 핸들러가 중복 등록되어 리스너가 누적되는 것을 방지.
+    // (기존 연결 재사용/재연결 경로에서 반복 호출되던 것이 메모리 누수 원인이었다.)
+    if (connectionsWithHandlers.has(connection)) return;
+    connectionsWithHandlers.add(connection);
+
     // 연결 끊김 상태 처리
     connection.on(
       VoiceConnectionStatus.Disconnected,
@@ -345,6 +371,12 @@ export default class Action {
     audioPlayer: AudioPlayer,
     retryCount: number = 0,
   ) {
+    const guildId = voiceChannel.guild.id;
+    // 동일 길드에 재연결 세션이 이미 진행 중이면 중복 루프를 막는다.
+    if (reconnectingGuilds.has(guildId)) return;
+    reconnectingGuilds.add(guildId);
+    let scheduledRetry = false;
+
     try {
       // 채널 존재 여부 및 접근 가능 여부 확인
       const guild = voiceChannel.guild;
@@ -431,8 +463,12 @@ export default class Action {
 
       // 최대 재시도 횟수에 도달하지 않았다면 다시 시도
       if (retryCount < 3) {
+        // 다음 시도를 예약한다. 이 세션은 계속되는 것으로 보고 가드를 유지하되,
+        // 재진입 직전에 해제해 예약된 재시도가 통과하도록 한다.
+        scheduledRetry = true;
         setTimeout(
           () => {
+            reconnectingGuilds.delete(guildId);
             this.reconnectVoiceChannel(
               voiceChannel,
               audioPlayer,
@@ -446,6 +482,9 @@ export default class Action {
           `🔌 최대 재연결 시도 횟수 도달, 재연결 포기: 서버 '${voiceChannel.guild.name}'`,
         );
       }
+    } finally {
+      // 재시도를 예약하지 않은 경우(성공/영구 실패/조기 중단)에만 가드 해제
+      if (!scheduledRetry) reconnectingGuilds.delete(guildId);
     }
   }
 

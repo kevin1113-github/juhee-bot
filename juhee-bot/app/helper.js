@@ -250,7 +250,9 @@ class TextToSpeech {
                 current_step: arrayToTensor(currentStepArray, scalarShape)
             });
 
-            const denoisedLatent = Array.from(vectorEstResult.denoised_latent.data);
+            // Float32Array를 그대로 인덱싱한다. (박싱된 JS 배열로 복사하지 않아
+            //  스텝마다 발생하던 대형 임시 할당/GC 부담을 줄인다.)
+            const denoisedLatent = vectorEstResult.denoised_latent.data;
 
             // Update latent with the denoised output
             let idx = 0;
@@ -267,7 +269,8 @@ class TextToSpeech {
             latent: arrayToTensor(noisyLatent, latentShape)
         });
 
-        const wav = Array.from(vocoderResult.wav_tts.data);
+        // 대형 wav 샘플을 박싱된 JS 배열로 복사하지 않고 Float32Array 그대로 반환한다.
+        const wav = vocoderResult.wav_tts.data;
         return { wav, duration: durOnnx };
     }
 
@@ -287,9 +290,14 @@ class TextToSpeech {
                 wavCat = wav;
                 durCat = duration[0];
             } else {
+                // Float32Array로 한 번에 이어붙인다. (스프레드로 박싱 배열을 만들며
+                //  청크마다 O(n²) 복사가 발생하던 것을 방지)
                 const silenceLen = Math.floor(silenceDuration * this.sampleRate);
-                const silence = new Array(silenceLen).fill(0);
-                wavCat = [...wavCat, ...silence, ...wav];
+                const merged = new Float32Array(wavCat.length + silenceLen + wav.length);
+                merged.set(wavCat, 0);
+                // silence 구간(가운데)은 Float32Array 기본값 0으로 이미 채워져 있음
+                merged.set(wav, wavCat.length + silenceLen);
+                wavCat = merged;
                 durCat += duration[0] + silenceDuration;
             }
         }

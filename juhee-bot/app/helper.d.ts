@@ -22,7 +22,7 @@ export declare class TextToSpeech {
         totalStep: number,
         speed?: number,
         silenceDuration?: number
-    ): Promise<{ wav: number[]; duration: number[] }>;
+    ): Promise<{ wav: ArrayLike<number>; duration: number[] }>;
 
     batch(
         textList: string[],
@@ -30,7 +30,7 @@ export declare class TextToSpeech {
         style: Style,
         totalStep: number,
         speed?: number
-    ): Promise<{ wav: number[]; duration: number[] }>;
+    ): Promise<{ wav: ArrayLike<number>; duration: number[] }>;
 }
 
 export declare function loadVoiceStyle(voiceStylePaths: string[], verbose?: boolean): Style;

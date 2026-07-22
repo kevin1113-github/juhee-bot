@@ -27,7 +27,7 @@ type TextToSpeechEngine = {
     style: SupertonicStyle,
     totalStep: number,
     speed?: number
-  ) => Promise<{ wav: number[]; duration: number[] }>;
+  ) => Promise<{ wav: ArrayLike<number>; duration: number[] }>;
 };
 
 type SynthesisResult = {
@@ -339,7 +339,7 @@ function getVoiceStyle(voice: keyof typeof VOICES): SupertonicStyle {
   return style;
 }
 
-function wavFloatToPcm16Buffer(wav: number[]): Buffer {
+function wavFloatToPcm16Buffer(wav: ArrayLike<number>): Buffer {
   const pcm = Buffer.allocUnsafe(wav.length * 2);
   for (let i = 0; i < wav.length; i++) {
     const sample = Math.max(-1, Math.min(1, wav[i] ?? 0));

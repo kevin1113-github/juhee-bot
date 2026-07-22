@@ -54,6 +54,18 @@ const extension = process.argv.reduce((ext, arg) => {
 
 // tsx watch(개발 모드)로 실행 중이면 샤드 프로세스에도 동일 로더를 주입한다.
 const shardExecArgv = extension === "ts" ? ["--import", "tsx"] : [];
+
+// ⚠️ 중요: ONNX 모델(약 251MB)과 오디오 처리는 매니저(이 프로세스)가 아니라
+//   ShardingManager가 fork로 띄우는 자식 샤드 프로세스(bot.js)에서 실행된다.
+//   ecosystem.config.cjs의 --max-old-space-size는 매니저에만 적용되므로,
+//   실제로 메모리를 먹는 샤드에는 여기서 별도로 힙 상한을 걸어줘야 한다.
+//   (걸지 않으면 샤드가 기본 힙 상한까지 GC를 미뤄 RSS가 서버 메모리를 잠식한다.)
+const shardMaxOldSpaceMb = Math.max(
+  128,
+  parseInt(process.env.SHARD_MAX_OLD_SPACE_MB ?? "384", 10) || 384
+);
+shardExecArgv.push(`--max-old-space-size=${shardMaxOldSpaceMb}`);
+logger.info(`   🔷 샤드 힙 상한: --max-old-space-size=${shardMaxOldSpaceMb}MB`);
 logger.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 logger.info(`🚀 주희봇 샤드 매니저 시작 중...`);
 logger.info(`   🔷 Node.js 버전: ${process.version}`);

@@ -854,6 +854,71 @@ client.on(Events.GuildCreate, async (guild) => {
 });
 
 /**
+ * 샤드 메모리 워치독
+ *
+ * @remarks
+ * PM2의 max_memory_restart는 PM2가 직접 띄운 프로세스(샤드 매니저)만 감시하고,
+ * ShardingManager가 fork로 띄운 이 샤드 프로세스는 감시하지 못한다.
+ * 따라서 여기서 직접 RSS를 주기적으로 확인하고, 임계치를 넘으면 음성 연결을
+ * 정리한 뒤 프로세스를 종료한다. ShardingManager(respawn: true)가 곧바로 재기동하므로
+ * 사실상 샤드 전용 max_memory_restart 역할을 한다.
+ */
+function startMemoryWatchdog() {
+  const limitMb = Math.max(
+    256,
+    parseInt(process.env.SHARD_MEMORY_LIMIT_MB ?? "700", 10) || 700
+  );
+  const limitBytes = limitMb * 1024 * 1024;
+  const CHECK_INTERVAL_MS = 30_000;
+  let shuttingDown = false;
+
+  const timer = setInterval(() => {
+    const { rss } = process.memoryUsage();
+    if (rss < limitBytes || shuttingDown) return;
+
+    shuttingDown = true;
+    const rssMb = Math.round(rss / 1024 / 1024);
+    logger.error(
+      `🧠 샤드 메모리 임계치 초과: RSS ${rssMb}MB >= ${limitMb}MB — 정리 후 재기동합니다.`
+    );
+
+    try {
+      // 열린 음성 연결/타이머 정리
+      for (const [guildId, guildData] of guildDataMap) {
+        try {
+          if (guildData.timeOut) {
+            clearTimeout(guildData.timeOut);
+            guildData.timeOut = null;
+          }
+          if (guildData.audioPlayer) {
+            guildData.audioPlayer.stop();
+            guildData.audioPlayer = null;
+          }
+          getVoiceConnection(guildId)?.destroy();
+        } catch {
+          // 개별 정리 실패는 무시하고 계속
+        }
+      }
+    } catch (error) {
+      logger.error("🧠 메모리 워치독 정리 중 오류:", error);
+    } finally {
+      logger.cleanup();
+      // 로그 flush 여유를 준 뒤 종료 → ShardingManager가 respawn
+      setTimeout(() => process.exit(1), 500);
+    }
+  }, CHECK_INTERVAL_MS);
+
+  // 워치독 타이머가 프로세스 종료를 막지 않도록 unref
+  if (typeof timer.unref === "function") timer.unref();
+
+  logger.info(
+    `🧠 샤드 메모리 워치독 시작: 임계치 ${limitMb}MB (확인 주기 ${CHECK_INTERVAL_MS / 1000}s)`
+  );
+}
+
+startMemoryWatchdog();
+
+/**
  * Discord 클라이언트 로그인
  */
 client.login(TOKEN);
